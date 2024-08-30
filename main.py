@@ -23,9 +23,10 @@ def main():
     market_data_handler.create_events()
     trade_handler.create_events()
     position_handler.create_events()
+    order_handler.create_events()
 
     ib_conn.connect()
-    ib_conn.subscribe_market_data(EURUSD)
+    ib_conn.subscribe_market_data(NFLX)
 
     # SENDING ORDER
     # order = order_handler.create_order('BUY', 20000)

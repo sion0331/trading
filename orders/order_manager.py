@@ -10,10 +10,15 @@ class OrderHandler:
 
     def create_events(self):
         self.ib_connection.ib.orderStatusEvent += self.order_status
+        self.ib_connection.ib.newOrderEvent += self.new_order
 
     def order_status(self, status):
         print(f"### Order Status: {status}")
 
+    def new_order(self, order):
+        print(f"### New Order: {order}")
+
+    ###
     def create_order(self, side, qty, order_type='MKT'):
         if order_type == 'MKT':
             order = MarketOrder(side, qty)
