@@ -1,14 +1,22 @@
 import logging
-from ib_insync import Order, MarketOrder
+
+from ib_insync import MarketOrder
+
 
 class OrderHandler:
     def __init__(self, ib_connection):
         self.ib_connection = ib_connection
         logging.basicConfig(level=logging.INFO)
 
-    def create_order(self, symbol, qty, order_type='MKT'):
+    def create_events(self):
+        self.ib_connection.ib.orderStatusEvent += self.order_status
+
+    def order_status(self, status):
+        print(f"### Order Status: {status}")
+
+    def create_order(self, side, qty, order_type='MKT'):
         if order_type == 'MKT':
-            order = MarketOrder(symbol, qty)
+            order = MarketOrder(side, qty)
         else:
             # Implement other order types if needed
             raise NotImplementedError("Order type not supported")
