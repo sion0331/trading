@@ -1,0 +1,4 @@
+api:
+  ib_host: "127.0.0.1"
+  ib_port: 7497
+  ib_client_id: 1
