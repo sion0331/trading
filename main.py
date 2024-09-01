@@ -1,5 +1,4 @@
 from brokerage.ib_connection import IBConnection
-from marketData.contracts import *
 from marketData.market_data import MarketDataHandler
 from orders.order_manager import OrderHandler
 from position.position_manager import PositionHandler
@@ -26,11 +25,13 @@ def main():
     order_handler.create_events()
 
     ib_conn.connect()
-    ib_conn.subscribe_market_data(NFLX)
 
-    # SENDING ORDER
-    # order = order_handler.create_order('BUY', 20000)
-    # order_handler.send_order(EURUSD, order)
+    position_handler.log_portfolio()
+    trade_handler.load_trades()
+    # ib_conn.subscribe_market_data(NFLX)
+
+    # order = order_handler.create_order('BUY', 100)
+    # order_handler.send_order(NFLX, order)
 
     ib_conn.run()
 
