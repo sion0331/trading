@@ -1,6 +1,6 @@
 import logging
 
-from ib_insync import MarketOrder
+from ib_async import MarketOrder
 
 
 class OrderHandler:

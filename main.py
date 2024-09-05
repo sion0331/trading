@@ -14,6 +14,7 @@ def main():
     ib_client_id = config['api']['ib_client_id']
 
     ib_conn = IBConnection(ib_host, ib_port, ib_client_id)
+
     market_data_handler = MarketDataHandler(ib_conn)
     trade_handler = TradeHandler(ib_conn)
     position_handler = PositionHandler(ib_conn)
@@ -25,13 +26,11 @@ def main():
     order_handler.create_events()
 
     ib_conn.connect()
-
-    position_handler.log_portfolio()
     trade_handler.load_trades()
+    position_handler.log_portfolio()
     # ib_conn.subscribe_market_data(NFLX)
-
-    # order = order_handler.create_order('BUY', 100)
-    # order_handler.send_order(NFLX, order)
+    # order = order_handler.create_order('SELL', 100)
+    # order_handler.send_order(GOOG, order)
 
     ib_conn.run()
 
