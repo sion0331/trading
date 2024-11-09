@@ -6,7 +6,7 @@
       <excludeFolder url="file://$MODULE_DIR$/vTest" />
       <excludeFolder url="file://$MODULE_DIR$/venvTrading" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.12 (algo) (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.12 (venv312)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
