@@ -16,7 +16,7 @@ class IBConnection:
         try:
             print(f'### Connecting IB # HOST: {self.host} | PORT: {self.port} | clientID: {self.client_id}')
             self.ib.connect(self.host, self.port, self.client_id)
-            self.ib.reqMarketDataType(1)  # 1 for live, 4 for delayed
+            self.ib.reqMarketDataType(4)  # 1 for live, 4 for delayed
         except Exception as e:
             print(f"Failed to connect: {e}")
 

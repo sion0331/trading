@@ -74,7 +74,7 @@ class TradeHandler:
         for trade in self.trades:
             trade.log()
 
-    def process_trade(self, execution):
+    def process_trade(self, reqId, execution):
         print(f"### Process execution: {execution} ")
         self.executions.append(execution)
 
