@@ -1,5 +1,5 @@
 from brokerage.ib_connection import IBConnection
-from marketData.contracts import EURUSD, BTC
+from marketData.contracts import EURUSD
 from marketData.market_data import MarketDataHandler
 from orders.order_manager import OrderHandler
 from position.position_manager import PositionHandler
@@ -9,6 +9,8 @@ from utils.config_loader import load_config
 
 
 def main():
+    contract = EURUSD
+
     config = load_config()
 
     ib_host = config['api']['ib_host']
@@ -17,7 +19,7 @@ def main():
 
     ib_conn = IBConnection(ib_host, ib_port, ib_client_id)
 
-    market_data_handler = MarketDataHandler(ib_conn)
+    market_data_handler = MarketDataHandler(ib_conn, config['db']['path'])
     ib_conn.ib.pendingTickersEvent += market_data_handler.handle_msg  ## todo check
     trade_handler = TradeHandler(ib_conn)
     position_handler = PositionHandler(ib_conn)
@@ -29,13 +31,13 @@ def main():
     order_handler.create_events()
 
     # TODO GPT - Setup strategy
-    strategy = SimpleStrategy(BTC, order_handler, position_handler)
+    strategy = SimpleStrategy(contract, order_handler, position_handler)
     market_data_handler.add_subscriber(strategy.on_market_data)
 
     ib_conn.connect()
 
     # TODO GPT - Subscribe to data
-    market_data_handler.subscribe(BTC)
+    market_data_handler.subscribe(contract)
 
     # trade_handler.load_trades()
     position_handler.log_portfolio()

@@ -1,5 +1,9 @@
-from marketData.data_types import Tob, Tape
 from datetime import datetime, timezone
+
+from database.db import get_conn, init_schema
+from database.writer import DBWriter
+from marketData.data_types import Tob, Tape
+
 
 # class MarketDataHandler:
 #     def __init__(self, ib_connection):
@@ -20,8 +24,12 @@ from datetime import datetime, timezone
 # TODO GPT
 
 class MarketDataHandler:
-    def __init__(self, ib_conn):
+    def __init__(self, ib_conn, db_path):
         self.ib = ib_conn.ib
+        self.conn = get_conn(db_path)
+        init_schema(self.conn)
+        self.writer = DBWriter(self.conn)
+
         self.subscribed_contracts = []
         self.subscribers = []
 
@@ -38,8 +46,7 @@ class MarketDataHandler:
         for msg in msgs:
             print(msg)
 
-            # Emit QuoteMsg if we have a real BBO
-            if msg.bid is not None and msg.ask is not None:
+            if msg.bid > 0 and msg.ask > 0:
                 tob = Tob(msg.contract.symbol, msg.bid, msg.ask, msg.bidSize, msg.askSize, msg.time)
                 #
                 # q = QuoteMsg(
@@ -53,8 +60,11 @@ class MarketDataHandler:
                 for callback in self.subscribers:
                     callback(tob)
 
-            # Emit TradeMsg if we have a last trade
-            if msg.last is not None:
+                row = (tob.symbol, str(tob.ts), tob.bid, tob.ask, tob.bidSize, tob.askSize)
+                print("inserting: ", row)
+                self.writer.insert_tob_many([row])
+
+            if msg.last > 0:
                 tape = Tape(
                     symbol=msg.contract.symbol,
                     contract=msg.contract,
@@ -65,11 +75,4 @@ class MarketDataHandler:
                 for callback in self.subscribers:
                     callback(tape)
 
-            #
-            #
-            # if ticker.bid and ticker.ask and ticker.bidSize > 0 and ticker.askSize > 0:
-            #     tob = Tob(ticker.contract.symbol, ticker.bid, ticker.ask, ticker.bidSize, ticker.askSize, ticker.time)
-            #     for callback in self.subscribers:
-            #         callback(tob)
-            # else:
-            #     print(f'ERROR | {ticker.contract.symbol} | {ticker.bidSize} {ticker.bid} <> {ticker.ask} {ticker.askSize}')
+                self.writer.insert_tape_many([tape])

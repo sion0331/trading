@@ -1,5 +1,6 @@
 from collections import deque
 from datetime import datetime, timedelta
+
 from marketData.data_types import Tob, Tape
 
 
@@ -26,11 +27,13 @@ class SimpleStrategy:
     def on_market_data(self, msg):
         price = self._price_from_msg(msg)
         if price is None:
+            print("Unknown Msg: ", msg)
             return
 
+        self.last_price = price
         self.prices.append(price)
         if len(self.prices) < self.window_size:
-            print(f'Waiting for Market Data... {len(self.prices)}, " | ", {self.window_size}')
+            print(f'Waiting for Market Data... {len(self.prices)} | {self.window_size}')
             return
 
         # check cooldown

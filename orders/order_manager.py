@@ -2,11 +2,14 @@ import logging
 
 from ib_async import MarketOrder
 
+from database.orders import OrderLogger
+
 
 class OrderHandler:
     def __init__(self, ib_connection):
         self.ib_connection = ib_connection
         logging.basicConfig(level=logging.INFO)
+        self.logger = OrderLogger(ib_connection.ib, db_path="./data/db/orders.db")
 
     def create_events(self):
         self.ib_connection.ib.orderStatusEvent += self.order_status
@@ -29,10 +32,12 @@ class OrderHandler:
 
     def send_order(self, contract, order):
         logging.info(f"Sending order: {order}")
+        self.logger.log_send_intent(contract, order)
         self.ib_connection.ib.placeOrder(contract, order)
 
     def cancel_order(self, order_id):
         logging.info(f"Cancelling order ID: {order_id}")
+        self.logger.log_cancel_intent(order_id)
         self.ib_connection.ib.cancelOrder(order_id)
 
     def check_order_status(self, order_id):
