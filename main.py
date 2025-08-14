@@ -20,30 +20,23 @@ def main():
     ib_conn = IBConnection(ib_host, ib_port, ib_client_id)
 
     market_data_handler = MarketDataHandler(ib_conn, config['db']['path'])
-    ib_conn.ib.pendingTickersEvent += market_data_handler.handle_msg  ## todo check
     trade_handler = TradeHandler(ib_conn)
     position_handler = PositionHandler(ib_conn)
     order_handler = OrderHandler(ib_conn)
+    strategy = SimpleStrategy(contract, order_handler, position_handler)
 
-    # market_data_handler.create_events()
+    market_data_handler.create_events()
     trade_handler.create_events()
     position_handler.create_events()
     order_handler.create_events()
 
-    # TODO GPT - Setup strategy
-    strategy = SimpleStrategy(contract, order_handler, position_handler)
-    market_data_handler.add_subscriber(strategy.on_market_data)
+    market_data_handler.add_callback(strategy.on_market_data)
 
     ib_conn.connect()
 
-    # TODO GPT - Subscribe to data
     market_data_handler.subscribe(contract)
-
     # trade_handler.load_trades()
     position_handler.log_portfolio()
-    # ib_conn.subscribe_market_data(NFLX)
-    # order = order_handler.create_order('SELL', 100)
-    # order_handler.send_order(GOOG, order)
 
     ib_conn.run()
 

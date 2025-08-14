@@ -1,27 +1,10 @@
-from datetime import datetime, timezone
+from datetime import timezone
 
 from database.db import get_conn, init_schema
 from database.writer import DBWriter
 from marketData.data_types import Tob, Tape
+from utils.utils_cmp import is_pos, is_equal
 
-
-# class MarketDataHandler:
-#     def __init__(self, ib_connection):
-#         self.ib_connection = ib_connection
-#         self.ticker_data = []
-#
-#     def create_events(self):
-#         self.ib_connection.ib.pendingTickersEvent += self.on_tick
-#
-#     def on_tick(self, tickers):
-#         for ticker in tickers:
-#             if ticker is not None:
-#                 tob = Tob(ticker.bid, ticker.ask, ticker.bidSize, ticker.askSize, ticker.time)
-#                 self.ticker_data.append(ticker)
-#                 tob.log()
-
-
-# TODO GPT
 
 class MarketDataHandler:
     def __init__(self, ib_conn, db_path):
@@ -33,46 +16,77 @@ class MarketDataHandler:
         self.subscribed_contracts = []
         self.subscribers = []
 
+        self.last = {}
+        self.price_eps = 1e-6
+        self.size_eps = 1e-6
+
+    def create_events(self):
+        self.ib.pendingTickersEvent += self.handle_msg
+
     def subscribe(self, contract):
         if contract not in self.subscribed_contracts:
             self.ib.reqMktData(contract)
-            # self.ib.reqMktData(contract, '', False, False)
             self.subscribed_contracts.append(contract)
 
-    def add_subscriber(self, callback_fn):
+    def add_callback(self, callback_fn):
         self.subscribers.append(callback_fn)
 
     def handle_msg(self, msgs):
         for msg in msgs:
-            print(msg)
+            # print(msg)
 
-            if msg.bid > 0 and msg.ask > 0:
-                tob = Tob(msg.contract.symbol, msg.bid, msg.ask, msg.bidSize, msg.askSize, msg.time)
-                #
-                # q = QuoteMsg(
-                #     symbol=(t.contract.symbol + getattr(t.contract, "currency", "")),
-                #     contract=t.contract,
-                #     bid=t.bid, ask=t.ask,
-                #     bidSize=getattr(t, "bidSize", None),
-                #     askSize=getattr(t, "askSize", None),
-                #     ts=(t.time or datetime.now(timezone.utc))
-                # )
-                for callback in self.subscribers:
-                    callback(tob)
+            sym = msg.contract.symbol
+            ts = msg.time.astimezone(timezone.utc).isoformat()
 
-                row = (tob.symbol, str(tob.ts), tob.bid, tob.ask, tob.bidSize, tob.askSize)
-                print("inserting: ", row)
-                self.writer.insert_tob_many([row])
+            bid = getattr(msg, "bid", None)
+            ask = getattr(msg, "ask", None)
+            bidSize = getattr(msg, "bidSize", None)
+            askSize = getattr(msg, "askSize", None)
+            last = getattr(msg, "last", None)
+            lastSize = getattr(msg, "lastSize", None)
 
-            if msg.last > 0:
-                tape = Tape(
-                    symbol=msg.contract.symbol,
-                    contract=msg.contract,
-                    price=msg.last,
-                    size=getattr(msg, "lastSize", None),
-                    ts=(msg.time or datetime.now(timezone.utc))
+            prev = self.last.setdefault(sym, {})
+
+            tob_changed = False
+            if is_pos(bid) and is_pos(bidSize) and is_pos(ask) and is_pos(askSize):
+                tob_changed = (
+                        not is_equal(bid, prev.get("bid"), self.price_eps) or
+                        not is_equal(ask, prev.get("ask"), self.price_eps) or
+                        not is_equal(bidSize, prev.get("bidSize"), self.size_eps) or
+                        not is_equal(askSize, prev.get("askSize"), self.size_eps)
                 )
-                for callback in self.subscribers:
-                    callback(tape)
+                if tob_changed:
+                    tob = Tob(msg.contract.symbol, msg.bid, msg.ask, msg.bidSize, msg.askSize, ts)
+                    prev.update({"bid": bid, "ask": ask, "bidSize": bidSize, "askSize": askSize})
 
-                self.writer.insert_tape_many([tape])
+                    for callback in self.subscribers:
+                        callback(tob)
+
+                    row = (tob.symbol, ts, tob.bid, tob.ask, tob.bidSize, tob.askSize)
+                    self.writer.insert_tob_many([row])
+
+            ### TODO - does not capture subsequent trades with same price & size
+            tape_changed = False
+            if is_pos(last) and is_pos(lastSize):
+                tape_changed = (
+                        not is_equal(last, prev.get("last"), self.price_eps) or
+                        not is_equal(lastSize, prev.get("lastSize"), self.size_eps)
+                )
+                if tape_changed:
+                    tape = Tape(
+                        symbol=msg.contract.symbol,
+                        price=msg.last,
+                        size=getattr(msg, "lastSize", None),
+                        ts=ts
+                    )
+                    prev.update({"last": last, "lastSize": lastSize})
+
+                    for callback in self.subscribers:
+                        callback(tape)
+
+                    row = (tape.symbol, ts, tape.price, tape.size)
+                    self.writer.insert_tape_many([row])
+
+            if not tape_changed and not tob_changed:
+                print("### Unknown Msg: ", msg)
+                continue

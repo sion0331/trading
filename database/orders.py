@@ -8,6 +8,11 @@ from typing import Optional
 
 
 # ---------- SQLite helpers ----------
+def _norm_side(side):
+    if not side: return None
+    s = side.upper()
+    return {"BOT": "BUY", "SLD": "SELL"}.get(s, s)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -80,7 +85,7 @@ class OrderLogger:
     executions, and commissions to a SQLite database.
     """
 
-    def __init__(self, ib, db_path: str | Path = "data/db/execution_log.db"):
+    def __init__(self, ib, db_path: str | Path = "data/db/orders.db"):
         self.ib = ib
         self.db_path = Path(db_path)
         _ensure_db(self.db_path)
@@ -146,51 +151,99 @@ class OrderLogger:
 
     def _on_order_status(self, *args, **kwargs):
         """
-        Compatible with common IB event signatures. We try to detect both
-        (order, status, ...) and keyword-style.
+        Handles:
+          - kwargs: order=..., status=..., filled=..., remaining=..., avgFillPrice=...
+          - positional: (order, status, filled, remaining, avgFillPrice, permId, ..., clientId, whyHeld, mktCapPrice)
+          - Trade object: has .order, .orderStatus, .contract
         """
-        # Try kwargs first (some libs pass named args)
-        status = kwargs.get("status", None)
+        order = kwargs.get("order")
+        status = kwargs.get("status")
+        filled = kwargs.get("filled")
+        remaining = kwargs.get("remaining")
+        avg_fill_price = kwargs.get("avgFillPrice", kwargs.get("avg_fill_price"))
+        perm_id = kwargs.get("permId")
+        client_id = kwargs.get("clientId")
+        why_held = kwargs.get("whyHeld", kwargs.get("why_held"))
+        mkt_cap_price = kwargs.get("mktCapPrice", kwargs.get("mkt_cap_price"))
+        symbol = None
+        action = None
+        order_type = None
+        qty = None
+        lmt_price = None
+        aux_price = None
+        order_id = kwargs.get("orderId")
 
-        order = kwargs.get("order", None)
-        order_id = getattr(order, "orderId", None) if order is not None else kwargs.get("orderId", None)
-        perm_id = getattr(order, "permId", None) if order is not None else kwargs.get("permId", None)
-        client_id = getattr(order, "clientId", None) if order is not None else kwargs.get("clientId", None)
+        # --- Trade shape ---
+        if len(args) == 1 and hasattr(args[0], "orderStatus") and hasattr(args[0], "order"):
+            trade = args[0]
+            os = getattr(trade, "orderStatus", None)
+            od = getattr(trade, "order", None)
+            ct = getattr(trade, "contract", None)
 
-        symbol = getattr(order, "symbol", None)
-        action = getattr(order, "action", None)
-        order_type = getattr(order, "orderType", None)
-        qty = getattr(order, "totalQuantity", None)
-        lmt_price = getattr(order, "lmtPrice", None)
-        aux_price = getattr(order, "auxPrice", None)
+            # from orderStatus
+            if os is not None:
+                status = getattr(os, "status", status)
+                filled = getattr(os, "filled", filled)
+                remaining = getattr(os, "remaining", remaining)
+                avg_fill_price = getattr(os, "avgFillPrice", avg_fill_price)
+                perm_id = getattr(os, "permId", perm_id)
+                client_id = getattr(os, "clientId", client_id)
+                why_held = getattr(os, "whyHeld", why_held)
+                mkt_cap_price = getattr(os, "mktCapPrice", mkt_cap_price)
+                order_id = getattr(os, "orderId", order_id)
 
-        filled = kwargs.get("filled", None)
-        remaining = kwargs.get("remaining", None)
-        avg_fill_price = kwargs.get("avgFillPrice", kwargs.get("avg_fill_price", None))
-        why_held = kwargs.get("whyHeld", kwargs.get("why_held", None))
-        mkt_cap_price = kwargs.get("mktCapPrice", kwargs.get("mkt_cap_price", None))
+            # from order
+            if od is not None:
+                order = od
+                order_id = getattr(od, "orderId", order_id)
+                action = getattr(od, "action", action)
+                order_type = getattr(od, "orderType", order_type)
+                qty = getattr(od, "totalQuantity", qty)
+                lmt_price = getattr(od, "lmtPrice", lmt_price)
+                aux_price = getattr(od, "auxPrice", aux_price)
+                perm_id = getattr(od, "permId", perm_id)
+                client_id = getattr(od, "clientId", client_id)
 
-        # Some ib_async variants pass positional args like:
-        # (order, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
-        if status is None and len(args) >= 2:
+            # from contract
+            if ct is not None:
+                symbol = getattr(ct, "symbol", symbol)
+
+        # --- classic positional shape ---
+        elif len(args) >= 2 and order is None and status is None:
             try:
                 order = args[0]
                 status = args[1]
-                filled = args[2] if len(args) > 2 else None
-                remaining = args[3] if len(args) > 3 else None
-                avg_fill_price = args[4] if len(args) > 4 else None
+                filled = args[2] if len(args) > 2 else filled
+                remaining = args[3] if len(args) > 3 else remaining
+                avg_fill_price = args[4] if len(args) > 4 else avg_fill_price
                 perm_id = args[5] if len(args) > 5 else perm_id
                 client_id = args[8] if len(args) > 8 else client_id
 
                 order_id = getattr(order, "orderId", order_id)
-                symbol = getattr(order, "symbol", symbol)
                 action = getattr(order, "action", action)
                 order_type = getattr(order, "orderType", order_type)
                 qty = getattr(order, "totalQuantity", qty)
                 lmt_price = getattr(order, "lmtPrice", lmt_price)
                 aux_price = getattr(order, "auxPrice", aux_price)
+                symbol = getattr(order, "symbol", symbol)  # some libs set symbol on order
             except Exception:
                 pass
+
+        # --- enrich from kwargs.order if present ---
+        if order is not None:
+            order_id = getattr(order, "orderId", order_id)
+            action = getattr(order, "action", action)
+            order_type = getattr(order, "orderType", order_type)
+            qty = getattr(order, "totalQuantity", qty)
+            lmt_price = getattr(order, "lmtPrice", lmt_price)
+            aux_price = getattr(order, "auxPrice", aux_price)
+            client_id = getattr(order, "clientId", client_id)
+            perm_id = getattr(order, "permId", perm_id)
+
+        # If we still don't have order_id, don't insert (avoid NOT NULL violation)
+        if order_id is None:
+            print("WARN: orderStatus without order_id; skipping insert.", args, kwargs)
+            return
 
         self._insert_order_row(
             order_id=order_id,
@@ -211,32 +264,166 @@ class OrderLogger:
             note="event: orderStatus"
         )
 
+    # def _on_order_status(self, *args, **kwargs):
+    #     """
+    #   - kwargs: order=..., status=..., filled=..., remaining=..., avgFillPrice=...
+    #   - positional: (order, status, filled, remaining, avgFillPrice, permId, ..., clientId, whyHeld, mktCapPrice)
+    #   - Trade object: has .order, .orderStatus, .contract
+    #     """
+    #     # Try kwargs first (some libs pass named args)
+    #     status = kwargs.get("status", None)
+    #
+    #     order = kwargs.get("order", None)
+    #     order_id = getattr(order, "orderId", None) if order is not None else kwargs.get("orderId", None)
+    #     perm_id = getattr(order, "permId", None) if order is not None else kwargs.get("permId", None)
+    #     client_id = getattr(order, "clientId", None) if order is not None else kwargs.get("clientId", None)
+    #
+    #     symbol = getattr(order, "symbol", None)
+    #     action = getattr(order, "action", None)
+    #     order_type = getattr(order, "orderType", None)
+    #     qty = getattr(order, "totalQuantity", None)
+    #     lmt_price = getattr(order, "lmtPrice", None)
+    #     aux_price = getattr(order, "auxPrice", None)
+    #
+    #     filled = kwargs.get("filled", None)
+    #     remaining = kwargs.get("remaining", None)
+    #     avg_fill_price = kwargs.get("avgFillPrice", kwargs.get("avg_fill_price", None))
+    #     why_held = kwargs.get("whyHeld", kwargs.get("why_held", None))
+    #     mkt_cap_price = kwargs.get("mktCapPrice", kwargs.get("mkt_cap_price", None))
+    #
+    #     # Some ib_async variants pass positional args like:
+    #     # (order, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+    #     if status is None and len(args) >= 2:
+    #         try:
+    #             order = args[0]
+    #             status = args[1]
+    #             filled = args[2] if len(args) > 2 else None
+    #             remaining = args[3] if len(args) > 3 else None
+    #             avg_fill_price = args[4] if len(args) > 4 else None
+    #             perm_id = args[5] if len(args) > 5 else perm_id
+    #             client_id = args[8] if len(args) > 8 else client_id
+    #
+    #             order_id = getattr(order, "orderId", order_id)
+    #             symbol = getattr(order, "symbol", symbol)
+    #             action = getattr(order, "action", action)
+    #             order_type = getattr(order, "orderType", order_type)
+    #             qty = getattr(order, "totalQuantity", qty)
+    #             lmt_price = getattr(order, "lmtPrice", lmt_price)
+    #             aux_price = getattr(order, "auxPrice", aux_price)
+    #         except Exception:
+    #             pass
+    #
+    #     self._insert_order_row(
+    #         order_id=order_id,
+    #         perm_id=perm_id,
+    #         client_id=client_id,
+    #         symbol=symbol,
+    #         action=action,
+    #         order_type=order_type,
+    #         qty=qty,
+    #         lmt_price=lmt_price,
+    #         aux_price=aux_price,
+    #         status=status,
+    #         filled_qty=filled,
+    #         remaining_qty=remaining,
+    #         avg_fill_price=avg_fill_price,
+    #         why_held=why_held,
+    #         mkt_cap_price=mkt_cap_price,
+    #         note="event: orderStatus"
+    #     )
+
     def _on_exec_details(self, *args, **kwargs):
         """
-        Typically signature (contract, execution)
+        Accepts multiple shapes and writes to executions/commissions tables:
+        - (contract, execution)
+        - Fill object with .contract, .execution, .commissionReport
+        - Trade object with .fills list of Fill
+        - kwargs: contract=..., execution=..., commissionReport=...
         """
-        contract = kwargs.get("contract", None)
-        execution = kwargs.get("execution", None)
+        fills = []  # list of tuples: (contract, execution, commissionReport)
 
-        if execution is None and len(args) >= 2:
-            contract, execution = args[0], args[1]
+        # --- kwargs shape --------------------------------------------------------
+        k_contract = kwargs.get("contract")
+        k_execution = kwargs.get("execution")
+        k_comm = kwargs.get("commissionReport")
+        if k_contract is not None and k_execution is not None:
+            fills.append((k_contract, k_execution, k_comm))
 
-        exec_id = getattr(execution, "execId", None)
-        order_id = getattr(execution, "orderId", None)
-        perm_id = getattr(execution, "permId", None)
-        side = getattr(execution, "side", None)
-        qty = getattr(execution, "shares", getattr(execution, "qty", None))
-        price = getattr(execution, "price", None)
-        exchange = getattr(execution, "exchange", None)
-        symbol = getattr(contract, "symbol", None)
+        # --- positional shapes ---------------------------------------------------
+        for a in args:
+            # Fill-like: has .contract and .execution
+            if hasattr(a, "execution") and hasattr(a, "contract"):
+                fills.append((getattr(a, "contract"), getattr(a, "execution"), getattr(a, "commissionReport", None)))
+                continue
 
-        ts = _utc_now_iso()
+            # Trade-like: has .fills iterable of Fill
+            if hasattr(a, "fills"):
+                try:
+                    for f in (a.fills or []):
+                        fills.append((getattr(f, "contract", None), getattr(f, "execution", None),
+                                      getattr(f, "commissionReport", None)))
+                except Exception:
+                    pass
+                continue
+
+            # Classic tuple: (contract, execution)
+            # If args came as (contract, execution) without attributes like .fills/.execution
+            if k_contract is None and k_execution is None and len(args) >= 2:
+                c0, e1 = args[0], args[1]
+                if hasattr(c0, "symbol") and hasattr(e1, "price"):
+                    fills.append((c0, e1, None))
+                    break
+
+        if not fills:
+            print("WARN: _on_exec_details could not parse event:", args, kwargs)
+            return
+        # --- write all parsed fills ---------------------------------------------
+        ts_now = _utc_now_iso()
         with _connect(self.db_path) as con:
-            con.execute("""
-                INSERT OR REPLACE INTO executions
-                (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange))
+            for contract, execution, comm in fills:
+                if execution is None or contract is None:
+                    continue
+
+                exec_id = getattr(execution, "execId", None)
+                order_id = getattr(execution, "orderId", None)
+                perm_id = getattr(execution, "permId", None)
+                side = _norm_side(getattr(execution, "side", None))
+                qty = getattr(execution, "shares", getattr(execution, "qty", None))
+                price = getattr(execution, "price", None)
+                exchange = getattr(execution, "exchange", None)
+                symbol = getattr(contract, "symbol", None)
+
+                # Some feeds include execution.time (datetime) — use it if present
+                ts = getattr(execution, "time", None)
+                if ts is not None:
+                    try:
+                        ts_iso = ts.isoformat()  # tz-aware from your example
+                    except Exception:
+                        ts_iso = ts_now
+                else:
+                    ts_iso = ts_now
+
+                # Debug print to verify extraction
+                print("EXEC ->", (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange))
+
+                # Write execution
+                con.execute("""
+                    INSERT OR REPLACE INTO executions
+                    (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange))
+
+                # Optional: write commission
+                if comm is not None:
+                    c_exec_id = getattr(comm, "execId", None) or exec_id
+                    commission = getattr(comm, "commission", None)
+                    currency = getattr(comm, "currency", None)
+                    realized = getattr(comm, "realizedPNL", getattr(comm, "realizedPnl", None))
+                    con.execute("""
+                        INSERT OR REPLACE INTO commissions
+                        (exec_id, ts, commission, currency, realized_pnl)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (c_exec_id, ts_iso, commission, currency, realized))
 
     def _on_commission_report(self, *args, **kwargs):
         """

@@ -26,7 +26,6 @@ class Tob:
 @dataclass
 class Tape:
     symbol: str
-    contract: object
     price: float
     size: float | None
     ts: datetime
