@@ -264,74 +264,6 @@ class OrderLogger:
             note="event: orderStatus"
         )
 
-    # def _on_order_status(self, *args, **kwargs):
-    #     """
-    #   - kwargs: order=..., status=..., filled=..., remaining=..., avgFillPrice=...
-    #   - positional: (order, status, filled, remaining, avgFillPrice, permId, ..., clientId, whyHeld, mktCapPrice)
-    #   - Trade object: has .order, .orderStatus, .contract
-    #     """
-    #     # Try kwargs first (some libs pass named args)
-    #     status = kwargs.get("status", None)
-    #
-    #     order = kwargs.get("order", None)
-    #     order_id = getattr(order, "orderId", None) if order is not None else kwargs.get("orderId", None)
-    #     perm_id = getattr(order, "permId", None) if order is not None else kwargs.get("permId", None)
-    #     client_id = getattr(order, "clientId", None) if order is not None else kwargs.get("clientId", None)
-    #
-    #     symbol = getattr(order, "symbol", None)
-    #     action = getattr(order, "action", None)
-    #     order_type = getattr(order, "orderType", None)
-    #     qty = getattr(order, "totalQuantity", None)
-    #     lmt_price = getattr(order, "lmtPrice", None)
-    #     aux_price = getattr(order, "auxPrice", None)
-    #
-    #     filled = kwargs.get("filled", None)
-    #     remaining = kwargs.get("remaining", None)
-    #     avg_fill_price = kwargs.get("avgFillPrice", kwargs.get("avg_fill_price", None))
-    #     why_held = kwargs.get("whyHeld", kwargs.get("why_held", None))
-    #     mkt_cap_price = kwargs.get("mktCapPrice", kwargs.get("mkt_cap_price", None))
-    #
-    #     # Some ib_async variants pass positional args like:
-    #     # (order, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
-    #     if status is None and len(args) >= 2:
-    #         try:
-    #             order = args[0]
-    #             status = args[1]
-    #             filled = args[2] if len(args) > 2 else None
-    #             remaining = args[3] if len(args) > 3 else None
-    #             avg_fill_price = args[4] if len(args) > 4 else None
-    #             perm_id = args[5] if len(args) > 5 else perm_id
-    #             client_id = args[8] if len(args) > 8 else client_id
-    #
-    #             order_id = getattr(order, "orderId", order_id)
-    #             symbol = getattr(order, "symbol", symbol)
-    #             action = getattr(order, "action", action)
-    #             order_type = getattr(order, "orderType", order_type)
-    #             qty = getattr(order, "totalQuantity", qty)
-    #             lmt_price = getattr(order, "lmtPrice", lmt_price)
-    #             aux_price = getattr(order, "auxPrice", aux_price)
-    #         except Exception:
-    #             pass
-    #
-    #     self._insert_order_row(
-    #         order_id=order_id,
-    #         perm_id=perm_id,
-    #         client_id=client_id,
-    #         symbol=symbol,
-    #         action=action,
-    #         order_type=order_type,
-    #         qty=qty,
-    #         lmt_price=lmt_price,
-    #         aux_price=aux_price,
-    #         status=status,
-    #         filled_qty=filled,
-    #         remaining_qty=remaining,
-    #         avg_fill_price=avg_fill_price,
-    #         why_held=why_held,
-    #         mkt_cap_price=mkt_cap_price,
-    #         note="event: orderStatus"
-    #     )
-
     def _on_exec_details(self, *args, **kwargs):
         """
         Accepts multiple shapes and writes to executions/commissions tables:
@@ -392,26 +324,31 @@ class OrderLogger:
                 price = getattr(execution, "price", None)
                 exchange = getattr(execution, "exchange", None)
                 symbol = getattr(contract, "symbol", None)
+                liquidity = getattr(execution, "lastLiquidity", None)  # IB enums: 1 added, 2 removed ..
+                ts_iso = getattr(execution, "time", None).isoformat()
 
-                # Some feeds include execution.time (datetime) — use it if present
-                ts = getattr(execution, "time", None)
-                if ts is not None:
-                    try:
-                        ts_iso = ts.isoformat()  # tz-aware from your example
-                    except Exception:
-                        ts_iso = ts_now
-                else:
-                    ts_iso = ts_now
+                # todo - use from message
+                order_type = None
+                try:
+                    got = con.execute("""
+                        SELECT order_type FROM orders
+                        WHERE order_id = ? ORDER BY ts DESC LIMIT 1
+                    """, (order_id,)).fetchone()
+                    if got:
+                        order_type = got[0]
+                except Exception:
+                    pass
 
                 # Debug print to verify extraction
-                print("EXEC ->", (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange))
+                print("EXEC ->",
+                      (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
 
                 # Write execution
                 con.execute("""
                     INSERT OR REPLACE INTO executions
-                    (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange))
+                    (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
 
                 # Optional: write commission
                 if comm is not None:
@@ -420,10 +357,10 @@ class OrderLogger:
                     currency = getattr(comm, "currency", None)
                     realized = getattr(comm, "realizedPNL", getattr(comm, "realizedPnl", None))
                     con.execute("""
-                        INSERT OR REPLACE INTO commissions
-                        (exec_id, ts, commission, currency, realized_pnl)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (c_exec_id, ts_iso, commission, currency, realized))
+                            INSERT INTO commissions
+                            (exec_id, ts, commission, currency, realized_pnl, order_id, symbol)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (c_exec_id, ts_iso, commission, currency, realized, order_id, symbol))
 
     def _on_commission_report(self, *args, **kwargs):
         """

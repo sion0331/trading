@@ -1,5 +1,11 @@
 # dash/layout.py
+import datetime as _dt
+
+import pytz
 from dash import dash_table, html, dcc
+
+NY = pytz.timezone("America/New_York")
+_today_ny = _dt.datetime.now(NY).date()
 
 
 def make_layout():
@@ -26,53 +32,53 @@ def make_layout():
                         value=30,  # 30 minutes default
                         style={"width": "120px"},
                     ),
-                    # dcc.Input(
-                    #     id="limit-input",
-                    #     type="number",
-                    #     min=10,
-                    #     max=10000,
-                    #     step=100,
-                    #     value=300,
-                    #     style={"width": "140px"},
-                    #     placeholder="Rows",
-                    # ),
-                    # dcc.Checklist(
-                    #     id="show-fills",
-                    #     options=[{"label": "Show orders/fills", "value": "on"}],
-                    #     value=[],
-                    #     inline=True,
-                    # ),
-                    # dcc.Input(
-                    #     id="fills-lookback-min",
-                    #     type="number",
-                    #     min=1, max=1440, step=1, value=120,  # last 120 minutes
-                    #     style={"width": "140px"},
-                    #     placeholder="Fills lookback (min)",
-                    # ),
+                    dcc.Checklist(
+                        id="stop-refresh",
+                        options=[{"label": "Stop", "value": "stop"}],
+                        value=[],  # empty list means unchecked
+                        style={"display": "inline-block", "marginLeft": "10px"}
+                    ),
                 ],
             ),
             dcc.Graph(id="tob-graph", style={"height": "100vh"}),
+
             html.H4("PnL by Trade"),
+
+            html.Div(
+                style={"display": "flex", "gap": "12px", "alignItems": "center", "flexWrap": "wrap"},
+                children=[
+                    html.Label("Date"),
+                    dcc.DatePickerSingle(
+                        id="trades-date",
+                        date=str(_today_ny),  # default: today (NY)
+                        display_format="YYYY-MM-DD",
+                        persistence=True,
+                        style={"marginLeft": "16px"}
+                    ),
+                ],
+            ),
             dash_table.DataTable(
                 id="pnl-table",
-                page_size=12,
-                sort_action="native",
-                style_table={"overflowX": "auto"},
-                style_cell={"fontSize": 13, "padding": "6px"},
                 columns=[
                     {"name": "Time", "id": "ts"},
                     {"name": "Side", "id": "side"},
-                    {"name": "Qty", "id": "qty", "type": "numeric", "format": {"specifier": ".0f"}},
-                    {"name": "Price", "id": "price", "type": "numeric", "format": {"specifier": ".6f"}},
-                    {"name": "Mid @ Exec", "id": "mid_exec", "type": "numeric", "format": {"specifier": ".6f"}},
-                    {"name": "Commission", "id": "commission", "type": "numeric", "format": {"specifier": ".2f"}},
-                    {"name": "Exec Impact PnL", "id": "exec_pnl", "type": "numeric", "format": {"specifier": ".2f"}},
-                    {"name": "MTM PnL (after trade)", "id": "mtm_pnl", "type": "numeric",
-                     "format": {"specifier": ".2f"}},
+                    {"name": "USD", "id": "usd", "type": "numeric"},
+                    {"name": "Qty", "id": "qty", "type": "numeric"},
+                    {"name": "Price", "id": "price", "type": "numeric"},
+                    {"name": "Mid@Fill", "id": "mid_exec", "type": "numeric"},
+                    {"name": "Type", "id": "order_type"},
+                    {"name": "Liq", "id": "liq"},
+                    {"name": "Spread PnL", "id": "spread_pnl", "type": "numeric"},
+                    {"name": "Commission", "id": "commission", "type": "numeric"},
+                    {"name": "MTM Δ", "id": "mtm_incr", "type": "numeric"},
+                    {"name": "Total", "id": "row_total", "type": "numeric"},
                 ],
+                fixed_rows={"headers": True, "data": 1},
+                style_table={"height": "420px", "overflowY": "auto"},
+                style_cell={"padding": "6px", "fontFamily": "monospace"},
+                style_header={"fontWeight": "700"},
             ),
 
-            # Poll the DB every 2 seconds
-            dcc.Interval(id="refresh", interval=2000, n_intervals=0),
+            dcc.Interval(id="refresh", interval=5_000, n_intervals=0),
         ],
     )

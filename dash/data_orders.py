@@ -5,29 +5,68 @@ from pathlib import Path
 
 import pandas as pd
 
-EXEC_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders.db"
+ORDERS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders.db"
 
 
 def _conn():
-    return sqlite3.connect(EXEC_DB)
+    return sqlite3.connect(ORDERS_DB)
+
+
+def load_executions_range(symbol: str, start_utc: str, end_utc: str):
+    with sqlite3.connect(ORDERS_DB) as con:
+        df = pd.read_sql_query(
+            """
+            SELECT exec_id, ts, price, qty, side, order_id, order_type, liquidity
+            FROM executions
+            WHERE symbol = ? AND ts >= ? AND ts < ?
+            ORDER BY ts ASC
+            """,
+            con, params=(symbol, start_utc, end_utc)
+        )
+    return df
+
+
+def load_commissions_range(symbol: str, start_utc: str, end_utc: str):
+    with sqlite3.connect(ORDERS_DB) as con:
+        df = pd.read_sql_query(
+            """
+            SELECT exec_id, order_id, symbol, ts, commission, currency, realized_pnl
+            FROM commissions
+            WHERE symbol = ? AND ts >= ? AND ts < ?
+            ORDER BY ts ASC
+            """,
+            con, params=(symbol, start_utc, end_utc)
+        )
+    return df
+
+
+def load_commissions_since(lookback_minutes: int, symbol: str | None = None):
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
+    q = "SELECT exec_id, order_id, symbol, ts, commission, currency, realized_pnl FROM commissions WHERE ts >= ?"
+    params = [cutoff]
+    if symbol:
+        q += " AND symbol = ?"
+        params.append(symbol)
+    with _conn() as con:
+        df = pd.read_sql_query(q, con, params=params)
+    return df if not df.empty else pd.DataFrame(
+        columns=["exec_id", "order_id", "symbol", "ts", "commission", "currency", "realized_pnl"])
 
 
 def load_executions_raw_since(symbol: str, lookback_minutes: int):
-    cutoff_iso = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
     with _conn() as con:
-        df = pd.read_sql_query(
-            """
-            SELECT exec_id, ts, price, qty, side
-            FROM executions
-            WHERE symbol = ? AND ts >= ?
-            ORDER BY ts ASC
-            """,
-            con, params=(symbol, cutoff_iso)
-        )
-    if df.empty: return df
-    df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
-    df["side"] = df["side"].str.upper().map({"BOT": "BUY", "SLD": "SELL"}).fillna(df["side"])
-    return df.reset_index(drop=True)
+        df = pd.read_sql_query("""
+            SELECT e.exec_id, e.ts, e.price, e.qty, e.side, e.order_id,
+                   COALESCE(e.order_type, (SELECT order_type FROM orders o
+                                           WHERE o.order_id = e.order_id
+                                           ORDER BY ts DESC LIMIT 1)) AS order_type,
+                   e.liquidity
+            FROM executions e
+            WHERE e.symbol = ? AND e.ts >= ?
+            ORDER BY e.ts ASC
+        """, con, params=(symbol, cutoff))
+    return df
 
 
 def load_executions_since(symbol: str, lookback_minutes: int):
@@ -49,67 +88,6 @@ def load_executions_since(symbol: str, lookback_minutes: int):
         df["side"] = df["side"].str.upper().map({"BOT": "BUY", "SLD": "SELL"}).fillna(df["side"])
     return df.reset_index(drop=True)
 
-
-# def load_latest_limit_since(symbol: str, lookback_minutes: int):
-#     cutoff_iso = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
-#     with _conn() as con:
-#         df = pd.read_sql_query(
-#             """
-#             SELECT lmt_price
-#             FROM orders
-#             WHERE symbol = ? AND ts >= ? AND lmt_price IS NOT NULL
-#             ORDER BY ts DESC
-#             LIMIT 1
-#             """,
-#             con, params=(symbol, cutoff_iso)
-#         )
-#     if df.empty: return None
-#     return float(df.loc[0, "lmt_price"])
-#
-# def load_symbol_executions(symbol: str, lookback_minutes: int = 120) -> pd.DataFrame:
-#     """
-#     Returns executions for a symbol within lookback window.
-#     Columns: ts, price, qty, side
-#     """
-#     since = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
-#     with _conn() as con:
-#         df = pd.read_sql_query(
-#             """
-#             SELECT ts, price, qty, side
-#             FROM executions
-#             WHERE symbol = ?
-#               AND ts >= ?
-#             ORDER BY ts ASC
-#             """,
-#             con, params=(symbol, since)
-#         )
-#     print(df)
-#     if df.empty:
-#         return df
-#     df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
-#     print("Loading executions: ", df)
-#     return df
-#
-# def load_symbol_latest_limit(symbol: str) -> float | None:
-#     """
-#     (Optional) Get most recent limit price from orders for this symbol (if any).
-#     """
-#     with _conn() as con:
-#         df = pd.read_sql_query(
-#             """
-#             WITH latest AS (
-#               SELECT *
-#               FROM orders
-#               WHERE symbol = ?
-#               ORDER BY ts DESC
-#               LIMIT 1
-#             )
-#             SELECT lmt_price FROM latest
-#             """, con, params=(symbol,)
-#         )
-#     if df.empty or pd.isna(df.loc[0, "lmt_price"]):
-#         return None
-#     return float(df.loc[0, "lmt_price"])
 
 def compute_pnl_curve(df_mid: pd.DataFrame, df_exec: pd.DataFrame) -> pd.DataFrame:
     """
@@ -149,19 +127,3 @@ def compute_pnl_curve(df_mid: pd.DataFrame, df_exec: pd.DataFrame) -> pd.DataFra
     aligned["cash"] = aligned["cum_cash"]
     aligned["pnl"] = aligned["cash"] + aligned["position"] * aligned["mid"]
     return aligned[["ts", "position", "cash", "pnl"]]
-
-
-def load_commissions_since(lookback_minutes: int):
-    cutoff_iso = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).isoformat()
-    with _conn() as con:
-        df = pd.read_sql_query(
-            """
-            SELECT exec_id, commission
-            FROM commissions
-            WHERE ts >= ?
-            """,
-            con, params=(cutoff_iso,)
-        )
-    if df.empty:
-        return pd.DataFrame(columns=["exec_id", "commission"])
-    return df

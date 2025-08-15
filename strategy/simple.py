@@ -7,7 +7,7 @@ from orders.order_fx import notional_usd_from_qty
 
 class SimpleStrategy:
     def __init__(self, contract, order_handler, position_handler, order_type="LMT", max_position=30_000,
-                 position_throttle=30, window_size=30, refresh_pips=0.1, cooldown_sec=10):
+                 position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10):
         self.contract = contract
         self.order_handler = order_handler
         self.position_handler = position_handler
@@ -88,7 +88,7 @@ class SimpleStrategy:
                     lmt_price = self.last.get('bid')
                     best = self.order_handler.best_limit(self.contract.symbol, "BUY")
                     need_reprice = (best is None) or (
-                                abs(best.lmt_price - lmt_price) >= self.refresh_pips * 0.0001)  # 0.5 pip
+                            abs(best.lmt_price - lmt_price) >= self.refresh_pips * 0.0001)  # 0.5 pip
                     need_resize = abs(pend_buy_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
@@ -105,7 +105,7 @@ class SimpleStrategy:
         # SELL signal
         elif price < ma:
             print(
-                "[Strategy] SELL signal triggered | EURUSD Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
+                f"[Strategy] SELL signal triggered | EURUSD Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
             self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
 
             if current_position_usd > -self.max_position + self.position_throttle:
@@ -125,7 +125,7 @@ class SimpleStrategy:
                     lmt_price = self.last.get('ask')
                     best = self.order_handler.best_limit(self.contract.symbol, "SELL")
                     need_reprice = (best is None) or (
-                                abs(best.lmt_price - lmt_price) >= self.refresh_pips * 0.0001)  # 0.5 pip
+                            abs(best.lmt_price - lmt_price) >= self.refresh_pips * 0.0001)  # 0.5 pip
                     need_resize = abs(pend_sell_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
