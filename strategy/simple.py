@@ -7,7 +7,7 @@ from orders.order_fx import notional_usd_from_qty
 
 class SimpleStrategy:
     def __init__(self, contract, order_handler, position_handler, order_type="LMT", max_position=30_000,
-                 position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10):
+                 position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10, last_trade_ts=datetime.now(timezone.utc)):
         self.contract = contract
         self.order_handler = order_handler
         self.position_handler = position_handler
@@ -19,7 +19,7 @@ class SimpleStrategy:
         self.prices = deque(maxlen=window_size)
         self.window_size = window_size
         self.last = {}
-        self.last_trade_ts = datetime.now(timezone.utc)
+        self.last_trade_ts = last_trade_ts
         self.cooldown = timedelta(seconds=cooldown_sec)
 
     def _price_from_msg(self, msg) -> float | None:
@@ -43,7 +43,7 @@ class SimpleStrategy:
             return
 
         # check cooldown
-        now = datetime.now(timezone.utc)
+        now = msg.ts
         if now - self.last_trade_ts < self.cooldown:
             # print(f"[Strategy] In cooldown ({(now - self.last_trade_ts).total_seconds():.2f}s)")
             return

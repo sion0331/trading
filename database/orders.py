@@ -18,6 +18,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ensure_column(con: sqlite3.Connection, table: str, col: str, coltype: str):
+    cur = con.cursor()
+    cur.execute(f"PRAGMA table_info({table})")
+    cols = {r[1] for r in cur.fetchall()}  # names
+    if col not in cols:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        con.commit()
+
+
 def _ensure_db(db_path: Path):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
@@ -69,6 +78,8 @@ def _ensure_db(db_path: Path):
         realized_pnl REAL
     );
     """)
+    _ensure_column(con, "executions", "order_type", "TEXT")
+    _ensure_column(con, "executions", "liquidity", "INTEGER")
     con.close()
 
 
