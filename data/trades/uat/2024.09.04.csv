@@ -1,3 +1,0 @@
-ts,execId,symbol,exchange,side,shares,price,permId,clientId,orderId,liquidation,cumQty,avgPrice,orderRef,evRule,evMultiplier,modelCode,lastLiquidity,pendingPriceRevision,commission,commissionCurrency,realizedPNL,yield_,yieldRedemptionDate
-2024-09-04 19:33:14+00:00,00012ec5.66d8d8e8.01.01,GOOG,EDGEA,SLD,100.0,157.89,1048005274,1,46,0,100.0,157.89,,,0.0,,2,False,1.455534,USD,-707.455534,0.0,0
-2024-09-04 20:04:31+00:00,00012ec5.66d8ea71.01.01,AAPL,EDGEA,BOT,100.0,220.85,1048005289,0,0,0,100.0,220.85,,,0.0,,2,False,1.0,USD,0.0,0.0,0
