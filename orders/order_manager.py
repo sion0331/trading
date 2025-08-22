@@ -2,6 +2,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 from database.orders import OrderLogger
@@ -144,7 +145,6 @@ class OrderHandler:
         ev = threading.Event()
         self._cancel_events[order_id] = ev
 
-        print("Cancelling order: ", o)
         self.ib_connection.ib.cancelOrder(o)  # API expects an Order object
         return ev
 
@@ -229,23 +229,28 @@ class OrderHandler:
                 # we only track LMTs in this cache
                 return
 
+            symbol = getattr(ct, "symbol", None)
             oid = getattr(od, "orderId", None)
+            side = getattr(od, "action", None)
+            qty = getattr(od, "totalQuantity", None)
+            lmt_price = getattr(od, "lmtPrice", None)
             status_txt = str(getattr(os, "status", ""))
 
             # keep cache in sync (now PendingCancel stays live, Cancelled drops)
             self._upsert_open_lmt(
-                symbol=getattr(ct, "symbol", None),
+                symbol=symbol,
                 order_id=oid,
-                side=getattr(od, "action", None),
-                qty=getattr(od, "totalQuantity", None),
-                lmt_price=getattr(od, "lmtPrice", None),
+                side=side,
+                qty=qty,
+                lmt_price=lmt_price,
                 status=status_txt,
                 order_obj=od,
             )
 
             # signal any synchronous waiters only on true Cancelled
             if status_txt == "Cancelled" and oid is not None:
-                print("_on_order_status: ", status_txt)
+                ts_now = datetime.now(timezone.utc).isoformat()
+                print(f"### {ts_now} | CANCEL | {symbol} {side} {qty} @ {lmt_price} | {oid}")
                 ev = self._cancel_events.pop(oid, None)
                 if ev:
                     ev.set()
@@ -278,7 +283,6 @@ class OrderHandler:
 
     def _on_new_order(self, trade):
         """newOrderEvent -> Trade(...) shape"""
-        print(f"### New Order: {trade}")
         try:
             od = getattr(trade, "order", None)
             os = getattr(trade, "orderStatus", None)
@@ -287,15 +291,26 @@ class OrderHandler:
                 return
             if not hasattr(od, "lmtPrice"):
                 return
+            symbol = getattr(ct, "symbol", None)
+            order_id = getattr(od, "orderId", None)
+            side = getattr(od, "action", None)
+            qty = getattr(od, "totalQuantity", None)
+            lmt_price = getattr(od, "lmtPrice", None)
+            if lmt_price > 1e10: lmt_price = None
+            status = getattr(os, "status", "Submitted") if os else "Submitted"
+
             self._upsert_open_lmt(
-                symbol=getattr(ct, "symbol", None),
-                order_id=getattr(od, "orderId", None),
-                side=getattr(od, "action", None),
-                qty=getattr(od, "totalQuantity", None),
-                lmt_price=getattr(od, "lmtPrice", None),
-                status=getattr(os, "status", "Submitted") if os else "Submitted",
+                symbol=symbol,
+                order_id=order_id,
+                side=side,
+                qty=qty,
+                lmt_price=lmt_price,
+                status=status,
                 order_obj=od,
             )
+            order_type = "LMT" if lmt_price else "MKT"  # TODO - add stoploss
+            print(
+                f"### {datetime.now(timezone.utc).isoformat()} | NEW ORDER | {symbol} {side} {order_type} {qty} {lmt_price} | {status}")
         except Exception:
             print("ERROR | new_order: ", trade)
             pass

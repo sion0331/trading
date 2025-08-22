@@ -3,4 +3,4 @@ api:
   ib_port: 7497        # 7496 = Live / 7497 = Paper
   ib_client_id: 1
 db:
-  path: "data/db/trading.db"
+  path: "data/db/market.db"

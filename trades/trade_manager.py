@@ -14,7 +14,7 @@ class TradeHandler:
 
     def create_events(self):
         self.ib_connection.ib.execDetailsEvent += self.process_trade
-        self.ib_connection.ib.commissionReportEvent += self.process_commission
+        # self.ib_connection.ib.commissionReportEvent += self.process_commission
 
     def load_trades(self):
         print(f"### Load Trades S ###")
@@ -75,7 +75,7 @@ class TradeHandler:
             trade.log()
 
     def process_trade(self, reqId, execution):
-        print(f"### Process execution: {execution} ")
+        # print(f"### Process execution: {execution} ")
         self.executions.append(execution)
 
     def process_commission(self, trade, fill, report):

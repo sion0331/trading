@@ -6,7 +6,7 @@ from ib_async import *
 
 from marketData.contracts import BTC
 
-DB_PATH = "../data/db/trading.db"
+DB_PATH = "../data/db/market.db"
 
 
 def get_conn(db_path=DB_PATH):
@@ -181,5 +181,5 @@ contract = BTC  # EURUSD
 sd = datetime(2025, 8, 8, tzinfo=pytz.UTC)
 ed = sd + timedelta(days=1)
 
-save_bidask_ticks_to_db(ib, contract, sd, ed, symbol=symbol, query_s=60, db_path="../data/db/trading.db")
-save_trade_ticks_to_db(ib, contract, sd, ed, symbol=symbol, query_s=60, db_path="../data/db/trading.db")
+save_bidask_ticks_to_db(ib, contract, sd, ed, symbol=symbol, query_s=60, db_path="../data/db/market.db")
+save_trade_ticks_to_db(ib, contract, sd, ed, symbol=symbol, query_s=60, db_path="../data/db/market.db")

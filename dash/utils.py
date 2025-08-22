@@ -39,7 +39,7 @@ def fifo_realized_unrealized(df_exec: pd.DataFrame, df_mid: pd.DataFrame) -> pd.
     e["net_qty"] = sign * e["qty"].astype(float)
     e["cash_flow"] = - e["net_qty"] * e["price"].astype(float)
     e["fee"] = e.get("fee", 0.0).astype(float)
-    e["impact"] = e.get("impact", 0.0).astype(float)
+    e["impact"] = e.get("spread_pnl", 0.0).astype(float)
 
     # FIFO inventory of (qty, price)
     lots = []

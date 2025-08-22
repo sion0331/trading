@@ -3,14 +3,19 @@ from datetime import datetime, timedelta, timezone
 
 from marketData.data_types import Tob, Tape
 from orders.order_fx import notional_usd_from_qty
+from utils.utils_dt import _as_utc_dt
 
 
 class SimpleStrategy:
-    def __init__(self, contract, order_handler, position_handler, order_type="LMT", max_position=30_000,
-                 position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10, last_trade_ts=datetime.now(timezone.utc)):
+    def __init__(self, contract, order_handler, position_handler, send_order=False, order_type="LMT",
+                 max_position=30_000,
+                 position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10,
+                 last_trade_ts=datetime.now(timezone.utc)):
         self.contract = contract
         self.order_handler = order_handler
         self.position_handler = position_handler
+
+        self.send_order = send_order
         self.max_position = max_position
         self.position_throttle = position_throttle
         self.refresh_pips = refresh_pips
@@ -43,7 +48,7 @@ class SimpleStrategy:
             return
 
         # check cooldown
-        now = msg.ts
+        now = _as_utc_dt(msg.ts)
         if now - self.last_trade_ts < self.cooldown:
             # print(f"[Strategy] In cooldown ({(now - self.last_trade_ts).total_seconds():.2f}s)")
             return
@@ -68,7 +73,7 @@ class SimpleStrategy:
         order = None
         if price > ma:
             print(
-                f"[Strategy] BUY signal triggered | EURUSD Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
+                f"### {now} | SIGNAL BUY | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
             self.order_handler.cancel_all_for(self.contract.symbol, "SELL")
 
             if current_position_usd < self.max_position - self.position_throttle:
@@ -80,7 +85,8 @@ class SimpleStrategy:
                         usd_notional=self.max_position - current_position_usd,
                         ref_price=price,
                     )
-                    self.order_handler.send_order(self.contract, order)
+                    if self.send_order:
+                        self.order_handler.send_order(self.contract, order)
                     self.last_trade_ts = now
 
                 elif self.order_type == "LMT":
@@ -92,20 +98,21 @@ class SimpleStrategy:
                     need_resize = abs(pend_buy_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
-                        self.order_handler.request_replace_limit(
-                            self.contract,
-                            "BUY",
-                            usd_notional=trade_size,
-                            limit_price=lmt_price,
-                            tif="DAY",
-                            cancel_opposite=True,  # optional: also clear SELLs
-                        )
+                        if self.send_order:
+                            self.order_handler.request_replace_limit(
+                                self.contract,
+                                "BUY",
+                                usd_notional=trade_size,
+                                limit_price=lmt_price,
+                                tif="DAY",
+                                cancel_opposite=True,  # optional: also clear SELLs
+                            )
                         self.last_trade_ts = now
 
         # SELL signal
         elif price < ma:
             print(
-                f"[Strategy] SELL signal triggered | EURUSD Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
+                f"### {now} | SIGNAL SELL | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
             self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
 
             if current_position_usd > -self.max_position + self.position_throttle:
@@ -117,7 +124,8 @@ class SimpleStrategy:
                         usd_notional=self.max_position + current_position_usd,
                         ref_price=price,
                     )
-                    self.order_handler.send_order(self.contract, order)
+                    if self.send_order:
+                        self.order_handler.send_order(self.contract, order)
                     self.last_trade_ts = now
 
                 elif self.order_type == "LMT":
@@ -129,12 +137,13 @@ class SimpleStrategy:
                     need_resize = abs(pend_sell_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
-                        self.order_handler.request_replace_limit(
-                            self.contract,
-                            "SELL",
-                            usd_notional=trade_size,
-                            limit_price=lmt_price,
-                            tif="DAY",
-                            cancel_opposite=True,
-                        )
+                        if self.send_order:
+                            self.order_handler.request_replace_limit(
+                                self.contract,
+                                "SELL",
+                                usd_notional=trade_size,
+                                limit_price=lmt_price,
+                                tif="DAY",
+                                cancel_opposite=True,
+                            )
                         self.last_trade_ts = now

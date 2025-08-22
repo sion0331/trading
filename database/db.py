@@ -2,7 +2,7 @@ import sqlite3
 from pathlib import Path
 
 
-def get_conn(db_path="data/trading.db"):
+def get_conn(db_path="data/market.db"):
     Path("data").mkdir(exist_ok=True)
     conn = sqlite3.connect(db_path, isolation_level=None, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=False)
     cur = conn.cursor()

@@ -60,6 +60,7 @@ def _ensure_db(db_path: Path):
 
     CREATE TABLE IF NOT EXISTS executions (
         exec_id     TEXT PRIMARY KEY,
+        version     INTEGER NOT NULL DEFAULT 1,
         ts          TEXT NOT NULL,              -- event time (ISO8601)
         order_id    INTEGER,
         perm_id     INTEGER,
@@ -73,13 +74,20 @@ def _ensure_db(db_path: Path):
     CREATE TABLE IF NOT EXISTS commissions (
         exec_id     TEXT PRIMARY KEY,
         ts          TEXT NOT NULL,
+        symbol      TEXT,
+        order_id    INTEGER,
         commission  REAL,
         currency    TEXT,
         realized_pnl REAL
     );
+    
+    CREATE INDEX IF NOT EXISTS idx_executions_execid ON executions(exec_id);
     """)
     _ensure_column(con, "executions", "order_type", "TEXT")
     _ensure_column(con, "executions", "liquidity", "INTEGER")
+    _ensure_column(con, "commissions", "symbol", "TEXT")
+    _ensure_column(con, "commissions", "order_id", "INTEGER")
+
     con.close()
 
 
@@ -89,6 +97,14 @@ def _connect(db_path: Path):
 
 
 # ---------- The logger ----------
+
+def _next_version(con, table: str, exec_id: str) -> int:
+    row = con.execute(
+        f"SELECT COALESCE(MAX(version), 0) FROM {table} WHERE exec_id = ?",
+        (exec_id,)
+    ).fetchone()
+    return int(row[0]) + 1
+
 
 class OrderLogger:
     """
@@ -102,13 +118,12 @@ class OrderLogger:
         _ensure_db(self.db_path)
 
         # register event handlers
-        # These event names are aligned with ib_insync style and many ib_async forks.
-        # If your package exposes different names, tweak here.
+        self.ib.connectedEvent += self._on_connected_event
         self.ib.orderStatusEvent += self._on_order_status
         self.ib.execDetailsEvent += self._on_exec_details
-        # Commission reports may be optional
-        if hasattr(self.ib, "commissionReportEvent"):
-            self.ib.commissionReportEvent += self._on_commission_report
+        self.ib.commissionReportEvent += self._on_commission_report
+
+        self.is_connected = False
 
     # --------- Public helpers to log INTENT when you send/cancel ---------
 
@@ -159,6 +174,9 @@ class OrderLogger:
         )
 
     # --------- Event handlers ---------
+
+    def _on_connected_event(self):
+        self.is_connected = True
 
     def _on_order_status(self, *args, **kwargs):
         """
@@ -285,46 +303,23 @@ class OrderLogger:
         """
         fills = []  # list of tuples: (contract, execution, commissionReport)
 
-        # --- kwargs shape --------------------------------------------------------
-        k_contract = kwargs.get("contract")
-        k_execution = kwargs.get("execution")
-        k_comm = kwargs.get("commissionReport")
-        if k_contract is not None and k_execution is not None:
-            fills.append((k_contract, k_execution, k_comm))
-
-        # --- positional shapes ---------------------------------------------------
-        for a in args:
-            # Fill-like: has .contract and .execution
-            if hasattr(a, "execution") and hasattr(a, "contract"):
-                fills.append((getattr(a, "contract"), getattr(a, "execution"), getattr(a, "commissionReport", None)))
-                continue
-
-            # Trade-like: has .fills iterable of Fill
-            if hasattr(a, "fills"):
-                try:
-                    for f in (a.fills or []):
-                        fills.append((getattr(f, "contract", None), getattr(f, "execution", None),
-                                      getattr(f, "commissionReport", None)))
-                except Exception:
-                    pass
-                continue
-
-            # Classic tuple: (contract, execution)
-            # If args came as (contract, execution) without attributes like .fills/.execution
-            if k_contract is None and k_execution is None and len(args) >= 2:
-                c0, e1 = args[0], args[1]
-                if hasattr(c0, "symbol") and hasattr(e1, "price"):
-                    fills.append((c0, e1, None))
-                    break
+        if hasattr(args[0], "fills"):
+            for f in args[0].fills:
+                # print("_on_exec_details #1")
+                fills.append((getattr(f, "contract", None), getattr(f, "execution", None)))
+        else:
+            # print("_on_exec_details #2")
+            fills.append((getattr(args[1], "contract", None), getattr(args[1], "execution", None)))
 
         if not fills:
             print("WARN: _on_exec_details could not parse event:", args, kwargs)
             return
+
         # --- write all parsed fills ---------------------------------------------
-        ts_now = _utc_now_iso()
         with _connect(self.db_path) as con:
-            for contract, execution, comm in fills:
+            for contract, execution in fills:
                 if execution is None or contract is None:
+                    print("ERROR | Missing execution message: ", contract, execution)
                     continue
 
                 exec_id = getattr(execution, "execId", None)
@@ -337,6 +332,7 @@ class OrderLogger:
                 symbol = getattr(contract, "symbol", None)
                 liquidity = getattr(execution, "lastLiquidity", None)  # IB enums: 1 added, 2 removed ..
                 ts_iso = getattr(execution, "time", None).isoformat()
+                ver = _next_version(con, "executions", exec_id)
 
                 # todo - use from message
                 order_type = None
@@ -350,49 +346,89 @@ class OrderLogger:
                 except Exception:
                     pass
 
-                # Debug print to verify extraction
-                print("EXEC ->",
-                      (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
-
                 # Write execution
                 con.execute("""
                     INSERT OR REPLACE INTO executions
-                    (exec_id, ts, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (exec_id, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
+                    (exec_id, version, ts, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    exec_id, ver, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
 
-                # Optional: write commission
-                if comm is not None:
-                    c_exec_id = getattr(comm, "execId", None) or exec_id
-                    commission = getattr(comm, "commission", None)
-                    currency = getattr(comm, "currency", None)
-                    realized = getattr(comm, "realizedPNL", getattr(comm, "realizedPnl", None))
-                    con.execute("""
-                            INSERT INTO commissions
-                            (exec_id, ts, commission, currency, realized_pnl, order_id, symbol)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (c_exec_id, ts_iso, commission, currency, realized, order_id, symbol))
+                print(
+                    f"### {ts_iso}        | FILLED | {symbol} {side} {order_type} {qty} @ {price} | {order_id} {perm_id} {exec_id}")
 
     def _on_commission_report(self, *args, **kwargs):
         """
-        Typically signature (commissionReport)
+        Handles multiple shapes:
+          - commissionReportEvent( Trade(...), Fill(...), CommissionReport(...) )
+          - commissionReportEvent( CommissionReport(...) )
+          - commissionReportEvent( commissionReport=... )
+        We treat this as the single source of truth for fees/realized PnL.
         """
-        cr = kwargs.get("commissionReport", None)
-        if cr is None and len(args) >= 1:
-            cr = args[0]
+        if not self.is_connected:
+            return
+        # Collect tuples of (commissionReport, execution?, contract?, order?)
+        items = []
 
-        exec_id = getattr(cr, "execId", None)
-        commission = getattr(cr, "commission", None)
-        currency = getattr(cr, "currency", None)
-        realized_pnl = getattr(cr, "realizedPNL", getattr(cr, "realizedPnl", None))
+        # 2) positional forms
+        for a in args:
+            if hasattr(a, "fills"):
+                order = getattr(a, "order", None)
+                for f in (a.fills or []):
+                    cr = getattr(f, "commissionReport", None)
+                    ex = getattr(f, "execution", None)
+                    ct = getattr(f, "contract", None)
+                    if cr is not None:
+                        # print("here #2")
+                        items.append((cr, ex, ct, order))
+                continue
 
-        ts = _utc_now_iso()
+            # Fill(...) like object
+            # if hasattr(a, "commissionReport") and (hasattr(a, "execution") or hasattr(a, "contract")):
+            #     print("here #3")
+            #     items.append((getattr(a, "commissionReport", None),
+            #                   getattr(a, "execution", None),
+            #                   getattr(a, "contract", None),
+            #                   None))
+            #     continue
+
+        if not items:
+            print("### ERROR | #1 Parsing Commission: ", args)
+            # Nothing parseable—just bail quietly
+            return
+
+        ts_iso = _utc_now_iso()
+
         with _connect(self.db_path) as con:
-            con.execute("""
-                INSERT OR REPLACE INTO commissions
-                (exec_id, ts, commission, currency, realized_pnl)
-                VALUES (?, ?, ?, ?, ?)
-            """, (exec_id, ts, commission, currency, realized_pnl))
+            for cr, ex, ct, od in items:
+                if cr is None or ex is None or ct is None:
+                    print("### ERROR | #2 Parsing Commission: ", args)
+                    continue
+
+                exec_id = getattr(cr, "execId", None)
+                commission = getattr(cr, "commission", None)
+                currency = getattr(cr, "currency", None)
+                realized = getattr(cr, "realizedPNL", getattr(cr, "realizedPnl", None))
+
+                # enrich from siblings if present
+                order_id = getattr(ex, "orderId", None) if ex is not None else None
+                symbol = getattr(ct, "symbol", None) if ct is not None else None
+
+                # UPSERT by exec_id (treat as source of truth)
+                con.execute("""
+                    INSERT INTO commissions (exec_id, ts, commission, currency, realized_pnl, order_id, symbol)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(exec_id) DO UPDATE SET
+                        ts            = excluded.ts,
+                        commission    = excluded.commission,
+                        currency      = excluded.currency,
+                        realized_pnl  = excluded.realized_pnl,
+                        order_id      = COALESCE(commissions.order_id, excluded.order_id),
+                        symbol        = COALESCE(commissions.symbol,   excluded.symbol)
+                """, (exec_id, ts_iso, commission, currency, realized, order_id, symbol))
+
+                print(
+                    f"### {ts_iso} | COMMISSION | {symbol} {currency} | commission:{commission} realized:{realized} | {order_id} {exec_id}")
 
     # ---------- low-level insert ----------
 
@@ -437,8 +473,8 @@ class OrderLogger:
             self.ib.execDetailsEvent -= self._on_exec_details
         except Exception:
             pass
-        if hasattr(self.ib, "commissionReportEvent"):
-            try:
-                self.ib.commissionReportEvent -= self._on_commission_report
-            except Exception:
-                pass
+        # if hasattr(self.ib, "commissionReportEvent"):
+        #     try:
+        #         self.ib.commissionReportEvent -= self._on_commission_report
+        #     except Exception:
+        #         pass

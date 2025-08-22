@@ -24,7 +24,7 @@ def fx_reset_window(date_ny_str: str) -> tuple[datetime, datetime]:
 
 def main():
     symbol = "EUR"  # must match the `symbol` you stored in DB (EUR vs EURUSD vs BTC)
-    date_ny = "2025-08-14"  # <<< pick a day to backtest (NY date)
+    date_ny = "2025-08-18"  # <<< pick a day to backtest (NY date)
     start_utc, end_utc = fx_reset_window(date_ny)
     start_iso, end_iso = start_utc.isoformat(), end_utc.isoformat()
 
@@ -54,7 +54,7 @@ def main():
         contract=contract,
         order_handler=oh,
         position_handler=pos,  # exposes .positions dict the same way
-        order_type="LMT",  # or "MKT"
+        order_type="MKT",  # or "MKT"
         max_position=30_000,
         position_throttle=30,
         window_size=10,
@@ -62,7 +62,7 @@ def main():
         last_trade_ts=start_utc
     )
 
-    # 5) Load TOB from your trading.db
+    # 5) Load TOB from your market.db
     df = load_tob(symbol, start_iso, end_iso)
     if df.empty:
         print("No TOB rows in this window. Adjust symbol/date.")
