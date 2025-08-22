@@ -8,8 +8,8 @@ import pytz
 from dash import Input, Output
 from plotly.subplots import make_subplots
 
-from data import load_tob_range  # re-use your market data loader
-from utils import _to_utc_ts
+from dashboard.data_loader import load_tob_range
+from dashboard.utils import _to_utc_ts
 
 NY = pytz.timezone("America/New_York")
 ORDERS_BT_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders_backtest.db"

@@ -21,8 +21,10 @@ class _OpenLmt:
 
 
 class OrderHandler:
-    def __init__(self, ib_connection):
+    def __init__(self, ib_connection, runtime_state):
         self.ib_connection = ib_connection
+        self.state = runtime_state
+
         logging.basicConfig(level=logging.INFO)
         self.logger = OrderLogger(ib_connection.ib, db_path="./data/db/orders.db")
 

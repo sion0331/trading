@@ -1,4 +1,3 @@
-# dash/data_orders.py
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,10 +5,30 @@ from pathlib import Path
 import pandas as pd
 
 ORDERS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders.db"
+MARKETS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "market.db"
 
 
 def _conn():
     return sqlite3.connect(ORDERS_DB)
+
+
+def load_tob_range(symbol: str, start_utc: str, end_utc: str, db_path=MARKETS_DB):
+    with sqlite3.connect(db_path) as con:
+        df = pd.read_sql_query(
+            """
+            SELECT ts, bid, ask, bid_size AS bidSize, ask_size AS askSize,
+                   (bid+ask)/2.0 AS mid
+            FROM tob
+            WHERE symbol = ? AND ts >= ? AND ts < ?
+            ORDER BY ts ASC
+            """,
+            con, params=(symbol, start_utc, end_utc)
+        )
+    if df is None:
+        return pd.DataFrame()
+    # df["spread"] = df["ask"] - df["bid"]
+    # df["spread_bps"] = (df["spread"] / df["mid"]) * 1e4
+    return df.reset_index(drop=True)
 
 
 def load_executions_range(symbol: str, start_utc: str, end_utc: str):

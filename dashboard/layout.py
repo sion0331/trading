@@ -1,4 +1,3 @@
-# dash/layout.py
 import datetime as _dt
 
 import pytz

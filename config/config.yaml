@@ -4,3 +4,9 @@ api:
   ib_client_id: 1
 db:
   path: "data/db/market.db"
+param:
+  host: "127.0.0.1"
+  port: 1111
+dash:
+  host: "127.0.0.1"
+  port: 2222

@@ -7,25 +7,24 @@ from utils.utils_dt import _as_utc_dt
 
 
 class SimpleStrategy:
-    def __init__(self, contract, order_handler, position_handler, send_order=False, order_type="LMT",
-                 max_position=30_000,
+    def __init__(self, contract, order_handler, position_handler, runtime_state,
                  position_throttle=30, window_size=10, refresh_pips=0.1, cooldown_sec=10,
                  last_trade_ts=datetime.now(timezone.utc)):
         self.contract = contract
         self.order_handler = order_handler
         self.position_handler = position_handler
+        self.state = runtime_state
 
-        self.send_order = send_order
-        self.max_position = max_position
         self.position_throttle = position_throttle
         self.refresh_pips = refresh_pips
 
-        self.order_type = order_type
         self.prices = deque(maxlen=window_size)
         self.window_size = window_size
         self.last = {}
         self.last_trade_ts = last_trade_ts
         self.cooldown = timedelta(seconds=cooldown_sec)
+
+        self.control_params = {'order_type': None, 'max_position': 0.0, 'send_order': False}
 
     def _price_from_msg(self, msg) -> float | None:
         if isinstance(msg, Tob):
@@ -36,7 +35,25 @@ class SimpleStrategy:
             return msg.price
         return None
 
+    def update_params(self):
+        # TODO - Cancel orders
+        snap = self.state.get_snapshot()
+        is_updated = False
+        if self.control_params['order_type'] != snap['order_type'] and snap['order_type'] in ['LMT', 'MKT']:
+            self.control_params['order_type'] = snap['order_type']
+            is_updated = True
+        if self.control_params['max_position'] != snap['max_position'] and snap['max_position'] >= 0:
+            self.control_params['max_position'] = snap['max_position']
+            is_updated = True
+        if self.control_params['send_order'] != snap['send_order'] and snap['send_order'] in [True, False]:
+            self.control_params['send_order'] = snap['send_order']
+            is_updated = True
+        if is_updated:
+            print("### Updated Parameters: ", self.control_params)
+
     def on_market_data(self, msg):
+        self.update_params()
+
         price = self._price_from_msg(msg)
         if price is None:
             print("Unknown Msg: ", msg)
@@ -70,27 +87,26 @@ class SimpleStrategy:
         #       f"| EffectiveUSD: {effective_usd:.0f}")
 
         # BUY signal
-        order = None
         if price > ma:
             print(
                 f"### {now} | SIGNAL BUY | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
             self.order_handler.cancel_all_for(self.contract.symbol, "SELL")
 
-            if current_position_usd < self.max_position - self.position_throttle:
+            if current_position_usd < self.control_params['max_position'] - self.position_throttle:
 
-                if self.order_type == "MKT":
+                if self.control_params['order_type'] == "MKT":
                     order = self.order_handler.create_order(
                         'BUY',
                         order_type='MKT',
-                        usd_notional=self.max_position - current_position_usd,
+                        usd_notional=self.control_params['max_position'] - current_position_usd,
                         ref_price=price,
                     )
-                    if self.send_order:
+                    if self.control_params['send_order']:
                         self.order_handler.send_order(self.contract, order)
                     self.last_trade_ts = now
 
-                elif self.order_type == "LMT":
-                    trade_size = self.max_position - current_position_usd
+                elif self.control_params['order_type'] == "LMT":
+                    trade_size = self.control_params['max_position'] - current_position_usd
                     lmt_price = self.last.get('bid')
                     best = self.order_handler.best_limit(self.contract.symbol, "BUY")
                     need_reprice = (best is None) or (
@@ -98,7 +114,7 @@ class SimpleStrategy:
                     need_resize = abs(pend_buy_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
-                        if self.send_order:
+                        if self.control_params['send_order']:
                             self.order_handler.request_replace_limit(
                                 self.contract,
                                 "BUY",
@@ -115,21 +131,21 @@ class SimpleStrategy:
                 f"### {now} | SIGNAL SELL | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
             self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
 
-            if current_position_usd > -self.max_position + self.position_throttle:
+            if current_position_usd > -self.control_params['max_position'] + self.position_throttle:
 
-                if self.order_type == "MKT":
+                if self.control_params['order_type'] == "MKT":
                     order = self.order_handler.create_order(
                         'SELL',
                         order_type='MKT',
-                        usd_notional=self.max_position + current_position_usd,
+                        usd_notional=self.control_params['max_position'] + current_position_usd,
                         ref_price=price,
                     )
-                    if self.send_order:
+                    if self.control_params['send_order']:
                         self.order_handler.send_order(self.contract, order)
                     self.last_trade_ts = now
 
-                elif self.order_type == "LMT":
-                    trade_size = self.max_position + current_position_usd
+                elif self.control_params['order_type'] == "LMT":
+                    trade_size = self.control_params['max_position'] + current_position_usd
                     lmt_price = self.last.get('ask')
                     best = self.order_handler.best_limit(self.contract.symbol, "SELL")
                     need_reprice = (best is None) or (
@@ -137,7 +153,7 @@ class SimpleStrategy:
                     need_resize = abs(pend_sell_usd - trade_size) >= self.position_throttle
 
                     if not best or need_reprice or need_resize:
-                        if self.send_order:
+                        if self.control_params['send_order']:
                             self.order_handler.request_replace_limit(
                                 self.contract,
                                 "SELL",

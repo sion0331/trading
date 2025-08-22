@@ -6,11 +6,8 @@ import pytz
 from dash import Input, Output
 from plotly.subplots import make_subplots
 
-from data import load_tob_range
-from data_orders import (
-    load_commissions_range, compute_pnl_curve, load_fills_range,
-)
-from utils import fifo_realized_unrealized, _to_utc_ts
+from dashboard.data_loader import load_tob_range, load_fills_range, load_commissions_range, compute_pnl_curve
+from dashboard.utils import _to_utc_ts, fifo_realized_unrealized
 
 NY = pytz.timezone("America/New_York")
 
