@@ -67,7 +67,6 @@ def _live_tab():
                     {"name": "Mid", "id": "mid", "type": "numeric"},
                     {"name": "Ask", "id": "ask", "type": "numeric"},
                     {"name": "Type", "id": "order_type"},
-                    {"name": "Liq", "id": "liq"},
                     {"name": "Sprd PnL", "id": "spread_pnl", "type": "numeric"},
                     {"name": "Mkt PnL", "id": "market_pnl", "type": "numeric"},
                     {"name": "Fee", "id": "fee", "type": "numeric"},

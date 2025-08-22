@@ -12,7 +12,7 @@ def main():
     send_order = False
     contract = EURUSD
     max_position = 60_000
-    order_type = "MKT"
+    order_type = "LMT"
 
     config = load_config()
 

@@ -58,7 +58,7 @@ def main():
         max_position=30_000,
         position_throttle=30,
         window_size=10,
-        cooldown_sec=1,
+        cooldown_sec=10,
         last_trade_ts=start_utc
     )
 

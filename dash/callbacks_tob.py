@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 
 from data import load_tob_range
 from data_orders import (
-    load_executions_range, load_commissions_range,
+    load_commissions_range, compute_pnl_curve, load_fills_range,
 )
 from utils import fifo_realized_unrealized, _to_utc_ts
 
@@ -73,7 +73,8 @@ def register_callbacks(app):
 
         # Load Data SQL
         df_mid = _to_utc_ts(load_tob_range(symbol, start_iso, end_iso))
-        df_exec = _to_utc_ts(load_executions_range(symbol, start_iso, end_iso))
+        # df_exec = _to_utc_ts(load_executions_range(symbol, start_iso, end_iso))
+        df_exec = _to_utc_ts(load_fills_range(symbol, start_iso, end_iso))
         df_comm = _to_utc_ts(load_commissions_range(symbol, start_iso, end_iso), col="ts")
 
         pnl_rows = [{
@@ -147,8 +148,8 @@ def register_callbacks(app):
         df_exec = pd.merge_asof(df_exec, df_mid[["ts", "bid", "mid", "ask"]], on="ts", direction="backward")
 
         # 2) Commissions by exec_id (fallback to zero if missing)
-        comm_map = df_comm.set_index("exec_id")["commission"].to_dict()
-        df_exec["fee"] = df_exec["exec_id"].map(comm_map).fillna(0.0).astype(float)
+        comm_map = df_comm.set_index("order_id")["commission"].to_dict()
+        df_exec["fee"] = df_exec["order_id"].map(comm_map).fillna(0.0).astype(float)
 
         # 3) sign: BUY=+1, SELL=-1
         side_u = df_exec["side"].str.upper().map({"BOT": "BUY", "SLD": "SELL"}).fillna(df_exec["side"].str.upper())
@@ -158,17 +159,18 @@ def register_callbacks(app):
         df_exec["usd"] = (df_exec["qty"].abs() * df_exec["price"]).round(0)
 
         # 5) Liquidity - market making/taking
-        df_exec["liq"] = df_exec["liquidity"].map({1: "MAKER", 2: "TAKER", 3: "ROUTED", 4: "AUCTION"}).fillna("")
+        # df_exec["liq"] = df_exec["liquidity"].map({1: "MAKER", 2: "TAKER", 3: "ROUTED", 4: "AUCTION"}).fillna("")
 
         # 6) Spread/market PnL
         df_exec["spread_pnl"] = df_exec["sign"] * (df_exec["mid"] - df_exec["price"]) * df_exec["qty"]
         df_exec["market_pnl"] = df_exec["sign"] * (df_mid.iloc[-1]['mid'] - df_exec["mid"]) * df_exec["qty"]
-        # pnl_curve = compute_pnl_curve(df_mid[["ts", "mid"]], df_exec)
+
+        pnl_curve = compute_pnl_curve(df_mid[["ts", "mid"]], df_exec)
 
         # 7) PnL curve - Figure Row 2
         curve = fifo_realized_unrealized(df_exec[["ts", "price", "qty", "side", "fee", "spread_pnl"]],
                                          df_mid[["ts", "mid"]])
-        fig.add_trace(go.Scatter(x=curve["ts"], y=curve["pnl_total"], name="PnL", mode="lines"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=pnl_curve["ts"], y=pnl_curve["total_pnl"], name="PnL", mode="lines"), row=2, col=1)
         # optional components:
         # fig.add_trace(go.Scatter(x=curve["ts"], y=curve["realized"], name="Realized", mode="lines"), row=2, col=1)
         # fig.add_trace(go.Scatter(x=curve["ts"], y=curve["unrealized"], name="Unrealized", mode="lines"), row=2, col=1)
@@ -205,7 +207,7 @@ def register_callbacks(app):
         }
 
         # 12) Select/display latest 30 rows, newest first, and prepend TOTAL row
-        view = df_exec[["ts", "side", "usd", "qty", "price", "bid", "mid", "ask", "order_type", "liq",
+        view = df_exec[["ts", "side", "usd", "qty", "price", "bid", "mid", "ask", "order_type",  # "liq",
                         "spread_pnl", "market_pnl", "fee", "row_total"]]
         view = view.sort_values("ts", ascending=False)
         view["ts"] = view["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
