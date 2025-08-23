@@ -23,3 +23,21 @@ class RuntimeState:
                 "max_position": self.max_position,
                 "send_order": self.send_order,
             }
+
+
+class FrozenRuntimeState:
+    def __init__(self, order_type="LMT", max_position=60_000, send_order=False):
+        self._snap = {
+            "order_type": order_type,
+            "max_position": max_position,
+            "send_order": send_order,
+        }
+
+    def get_snapshot(self):
+        # same interface as RuntimeState
+        return dict(self._snap)
+
+    def set(self, **kwargs):
+        # either ignore or make it strict:
+        # raise RuntimeError("State is frozen in backtests")
+        return

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from marketData.data_types import Tob, Tape
 from orders.order_fx import notional_usd_from_qty
+from utils.runtime_state import FrozenRuntimeState
 from utils.utils_dt import _as_utc_dt
 
 
@@ -13,7 +14,7 @@ class SimpleStrategy:
         self.contract = contract
         self.order_handler = order_handler
         self.position_handler = position_handler
-        self.state = runtime_state
+        self.state = runtime_state or FrozenRuntimeState()
 
         self.position_throttle = position_throttle
         self.refresh_pips = refresh_pips
@@ -88,9 +89,9 @@ class SimpleStrategy:
 
         # BUY signal
         if price > ma:
-            print(
-                f"### {now} | SIGNAL BUY | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
-            self.order_handler.cancel_all_for(self.contract.symbol, "SELL")
+            # print(
+            #     f"### {now} | SIGNAL BUY | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Send: {self.control_params['send_order']} | Position: {current_position_usd}")
+            # self.order_handler.cancel_all_for(self.contract.symbol, "SELL")
 
             if current_position_usd < self.control_params['max_position'] - self.position_throttle:
 
@@ -127,9 +128,9 @@ class SimpleStrategy:
 
         # SELL signal
         elif price < ma:
-            print(
-                f"### {now} | SIGNAL SELL | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Position: {current_position_usd}")
-            self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
+            # print(
+            #     f"### {now} | SIGNAL SELL | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Send: {self.control_params['send_order']} | Position: {current_position_usd}")
+            # self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
 
             if current_position_usd > -self.control_params['max_position'] + self.position_throttle:
 

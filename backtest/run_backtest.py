@@ -1,4 +1,3 @@
-# backtest/run_backtest.py
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -7,9 +6,8 @@ import pytz
 
 from backtest.broker import SimIB, FakeConnection, BacktestOrderHandler, Contract, BacktestPositions
 from backtest.replay import load_tob, replay_tob
-from strategy.simple import SimpleStrategy  # your existing strategy (unchanged)
-
-# if your SimpleStrategy import path differs, adjust it.
+from strategy.simple import SimpleStrategy
+from utils.runtime_state import FrozenRuntimeState
 
 NY = pytz.timezone("America/New_York")
 
@@ -17,16 +15,21 @@ NY = pytz.timezone("America/New_York")
 def fx_reset_window(date_ny_str: str) -> tuple[datetime, datetime]:
     y, m, d = map(int, date_ny_str.split("-"))
     day_ny = NY.localize(datetime(y, m, d))
-    start_ny = day_ny.replace(hour=16, minute=55, second=0, microsecond=0)
-    end_ny = start_ny + timedelta(days=1)
+    end_ny = day_ny.replace(hour=23, minute=59, second=0, microsecond=0)
+    # start_ny = day_ny.replace(hour=16, minute=55, second=0, microsecond=0)
+    start_ny = end_ny + timedelta(days=-1)
     return start_ny.astimezone(timezone.utc), end_ny.astimezone(timezone.utc)
 
 
 def main():
-    symbol = "EUR"  # must match the `symbol` you stored in DB (EUR vs EURUSD vs BTC)
-    date_ny = "2025-08-18"  # <<< pick a day to backtest (NY date)
+    symbol = "EUR"
+    date_ny = "2025-08-22"
     start_utc, end_utc = fx_reset_window(date_ny)
     start_iso, end_iso = start_utc.isoformat(), end_utc.isoformat()
+    print("Running Backtest: ", start_iso, end_iso)
+
+    # Strategy Parameters
+    frozen_state = FrozenRuntimeState(order_type="MKT", max_position=60_000, send_order=True)
 
     # 1) Sim broker & connection
     ib_sim = SimIB()
@@ -36,7 +39,7 @@ def main():
     pos = BacktestPositions()
 
     # 3) Order handler that talks to the sim broker, writing to a separate orders DB
-    oh = BacktestOrderHandler(conn, orders_db_path="./data/db/orders_backtest.db")
+    oh = BacktestOrderHandler(conn, frozen_state, orders_db_path="./data/db/orders_backtest.db")
     oh.create_events()  # register OrderHandler listeners to ib_sim events
 
     # Also update positions when fills happen (so strategy sees them)
@@ -48,14 +51,13 @@ def main():
 
     ib_sim.execDetailsEvent += _on_exec
 
-    # 4) Strategy (unchanged)
+    # 4) Strategy
     contract = Contract(symbol=symbol, exchange="SIM", currency="USD")
     strat = SimpleStrategy(
         contract=contract,
         order_handler=oh,
         position_handler=pos,  # exposes .positions dict the same way
-        order_type="MKT",  # or "MKT"
-        max_position=30_000,
+        runtime_state=frozen_state,
         position_throttle=30,
         window_size=10,
         cooldown_sec=10,

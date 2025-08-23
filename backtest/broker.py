@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from backtest.sim_events import Event
+from utils.runtime_state import FrozenRuntimeState
 
 
 # --- light contract & order shells (compatible fields the strategy/handler read) ---
@@ -137,6 +138,7 @@ class SimIB:
 
     def __init__(self):
         # events your code already uses
+        self.connectedEvent = Event("connectedEvent")
         self.newOrderEvent = Event("newOrderEvent")
         self.orderStatusEvent = Event("orderStatusEvent")
         self.openOrderEvent = Event("openOrderEvent")
@@ -274,8 +276,9 @@ from database.orders import OrderLogger
 
 
 class BacktestOrderHandler(LiveOrderHandler):
-    def __init__(self, ib_connection: FakeConnection, orders_db_path: str = "./data/db/orders_backtest.db"):
+    def __init__(self, ib_connection: FakeConnection, frozen_state: FrozenRuntimeState,
+                 orders_db_path: str = "./data/db/orders_backtest.db"):
         # call parent but immediately swap logger to write into a separate DB
-        super().__init__(ib_connection)
+        super().__init__(ib_connection, runtime_state=frozen_state)
         self.logger = OrderLogger(ib_connection.ib, db_path=orders_db_path)
         print("[BT] OrderLogger DB:", orders_db_path)

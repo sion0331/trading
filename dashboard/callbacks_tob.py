@@ -6,7 +6,7 @@ import pytz
 from dash import Input, Output
 from plotly.subplots import make_subplots
 
-from dashboard.data_loader import load_tob_range, load_fills_range, load_commissions_range, compute_pnl_curve
+from dashboard.data_loader import load_tob_range, load_fills_range, load_commissions_range, compute_pnl_curve, ORDERS_DB
 from dashboard.utils import _to_utc_ts, fifo_realized_unrealized
 
 NY = pytz.timezone("America/New_York")
@@ -66,12 +66,11 @@ def register_callbacks(app):
         start_utc, end_utc = fx_reset_window_for_date(trades_date or str(datetime.now(NY).date()))
         start_iso = start_utc.isoformat()
         end_iso = end_utc.isoformat()
-        print(f'{start_iso} - {end_iso} | lookback: {lookback_iso}')
+        # print(f'{start_iso} - {end_iso} | lookback: {lookback_iso}')
 
         # Load Data SQL
         df_mid = _to_utc_ts(load_tob_range(symbol, start_iso, end_iso))
-        # df_exec = _to_utc_ts(load_executions_range(symbol, start_iso, end_iso))
-        df_exec = _to_utc_ts(load_fills_range(symbol, start_iso, end_iso))
+        df_exec = _to_utc_ts(load_fills_range(symbol, start_iso, end_iso, ORDERS_DB))
         df_comm = _to_utc_ts(load_commissions_range(symbol, start_iso, end_iso), col="ts")
 
         pnl_rows = [{

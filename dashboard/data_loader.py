@@ -6,6 +6,7 @@ import pandas as pd
 
 ORDERS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders.db"
 MARKETS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "market.db"
+BACKTEST_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders_backtest.db"
 
 
 def _conn():
@@ -45,8 +46,8 @@ def load_executions_range(symbol: str, start_utc: str, end_utc: str):
     return df
 
 
-def load_fills_range(symbol: str, start_utc: str, end_utc: str):
-    with sqlite3.connect(ORDERS_DB) as con:
+def load_fills_range(symbol: str, start_utc: str, end_utc: str, path: str):
+    with sqlite3.connect(path) as con:
         df = pd.read_sql_query(
             """
             SELECT ts, avg_fill_price AS price, qty, action AS side, order_id, order_type

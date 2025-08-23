@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Any
 
 from database.orders import OrderLogger
 from orders.order_fx import create_fx_order
+from utils.runtime_state import FrozenRuntimeState
 
 
 @dataclass
@@ -23,7 +24,7 @@ class _OpenLmt:
 class OrderHandler:
     def __init__(self, ib_connection, runtime_state):
         self.ib_connection = ib_connection
-        self.state = runtime_state
+        self.state = runtime_state or FrozenRuntimeState()
 
         logging.basicConfig(level=logging.INFO)
         self.logger = OrderLogger(ib_connection.ib, db_path="./data/db/orders.db")
