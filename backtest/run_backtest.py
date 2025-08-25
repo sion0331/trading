@@ -24,7 +24,7 @@ def fx_reset_window(date_ny_str: str) -> tuple[datetime, datetime]:
 
 def main():
     symbol = "EUR"
-    date_ny = "2025-08-22"
+    date_ny = "2025-08-25"
     start_utc, end_utc = fx_reset_window(date_ny)
     start_iso, end_iso = start_utc.isoformat(), end_utc.isoformat()
     print("Running Backtest: ", start_iso, end_iso)

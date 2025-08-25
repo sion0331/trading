@@ -47,32 +47,37 @@ def load_executions_range(symbol: str, start_utc: str, end_utc: str):
 
 
 def load_fills_range(symbol: str, start_utc: str, end_utc: str, path: str):
-    with sqlite3.connect(path) as con:
-        df = pd.read_sql_query(
-            """
-            SELECT ts, avg_fill_price AS price, qty, action AS side, order_id, order_type
-            FROM orders
-            WHERE symbol = ? AND status = 'Filled' AND ts >= ? AND ts < ?
-                AND remaining_qty < 0.1
-            ORDER BY ts ASC
-            """,
-            con, params=(symbol, start_utc, end_utc)
-        )
-    return df
+    try:
+        with sqlite3.connect(path) as con:
+            df = pd.read_sql_query(
+                """
+                SELECT ts, avg_fill_price AS price, qty, action AS side, order_id, order_type
+                FROM orders
+                WHERE symbol = ? AND status = 'Filled' AND ts >= ? AND ts < ?
+                    AND remaining_qty < 0.1
+                ORDER BY ts ASC
+                """,
+                con, params=(symbol, start_utc, end_utc))
+        return df
+    except Exception:
+        return None
 
 
 def load_commissions_range(symbol: str, start_utc: str, end_utc: str, path: str):
-    with sqlite3.connect(path) as con:
-        df = pd.read_sql_query(
-            """
-            SELECT exec_id, order_id, symbol, ts, commission, currency, realized_pnl
-            FROM commissions
-            WHERE symbol = ? AND ts >= ? AND ts < ?
-            ORDER BY ts ASC
-            """,
-            con, params=(symbol, start_utc, end_utc)
-        )
-    return df
+    try:
+        with sqlite3.connect(path) as con:
+            df = pd.read_sql_query(
+                """
+                SELECT exec_id, order_id, symbol, ts, commission, currency, realized_pnl
+                FROM commissions
+                WHERE symbol = ? AND ts >= ? AND ts < ?
+                ORDER BY ts ASC
+                """,
+                con, params=(symbol, start_utc, end_utc)
+            )
+        return df
+    except Exception:
+        return None
 
 
 def load_commissions_since(lookback_minutes: int, symbol: str | None = None):

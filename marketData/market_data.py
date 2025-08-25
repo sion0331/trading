@@ -33,8 +33,6 @@ class MarketDataHandler:
 
     def handle_msg(self, msgs):
         for msg in msgs:
-            # print(msg)
-
             sym = msg.contract.symbol
             ts = msg.time.astimezone(timezone.utc).isoformat()
 
@@ -88,5 +86,5 @@ class MarketDataHandler:
                     self.writer.insert_tape_many([row])
 
             if not tape_changed and not tob_changed:
-                print("### Unknown Msg: ", msg)
+                # print("### Unknown Msg: ", msg)
                 continue

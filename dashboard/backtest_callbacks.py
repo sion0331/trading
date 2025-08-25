@@ -45,33 +45,79 @@ def register_backtest_callbacks(app):
 
         # ---- figure with shared x-axis
         fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True,
-            vertical_spacing=0.06, row_heights=[0.7, 0.3],
-            subplot_titles=(f"{symbol} Price & Executions", "PnL"),
+            rows=3, cols=1, shared_xaxes=True,
+            vertical_spacing=0.06, row_heights=[0.6, 0.20, 0.20],
+            specs=[[{}], [{"secondary_y": True}], [{}]],
+            subplot_titles=(f"{symbol} Price & Executions", "Activity", "PnL"),
         )
 
         # ----- Figure Row 1: Price
+        PIP = 1e-4
+        df_mid["spread"] = (df_mid["ask"] - df_mid["bid"]) / PIP
+        df_mid["d_mid"] = df_mid["mid"].diff() / PIP
+
+        res = (
+            df_mid.set_index("ts")
+            .resample("30s")  # 1 minute
+            .agg(
+                tick_count=("mid", "size"),  # number of TOB updates
+                avg_spread=("spread", "mean"),  # average spread (price)
+                # realized vol in pips within the minute (std of 1s deltas)
+                vol=("d_mid", "std"),
+            )
+            .reset_index()
+        ).fillna(0.0)
+
         fig.add_trace(go.Scatter(x=df_mid["ts"], y=df_mid["bid"], name="Bid", mode="lines"), row=1,
                       col=1)
         fig.add_trace(go.Scatter(x=df_mid["ts"], y=df_mid["ask"], name="Ask", mode="lines"), row=1,
                       col=1)
-        fig.add_trace(go.Scatter(x=df_mid["ts"], y=df_mid["mid"], name="Mid", mode="lines"), row=1,
+        fig.add_trace(go.Scatter(x=df_mid["ts"], y=df_mid["mid"], name="Mid", mode="lines", visible="legendonly"),
+                      row=1,
                       col=1)
+
+        fig.add_trace(
+            go.Bar(
+                x=res["ts"], y=res["tick_count"], name="Ticks/min",
+                hovertemplate="Ticks=%{y:.0f}<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
+            ),
+            row=2, col=1, secondary_y=False
+        )
+
+        # avg spread (line, pips)
+        fig.add_trace(
+            go.Scatter(
+                x=res["ts"], y=res["avg_spread"], mode="lines", name="Avg spread (pips)",
+                hovertemplate="Spread=%{y:.2f} pips<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
+            ),
+            row=2, col=1, secondary_y=True
+        )
+
+        # realized vol (line, pips)
+        fig.add_trace(
+            go.Scatter(
+                x=res["ts"], y=res["vol"], mode="lines", name="Vol (pips, 1‑min σ)",
+                hovertemplate="Vol=%{y:.2f} pips<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
+            ),
+            row=2, col=1, secondary_y=True
+        )
 
         # ---- layout / axes
         fig.update_layout(
             margin=dict(l=40, r=10, t=40, b=30),
             legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0),
         )
-        fig.update_yaxes(title_text=f"{symbol} Price", row=1, col=1)
-        fig.update_yaxes(title_text="PnL (quote ccy)", row=2, col=1)
-        fig.update_xaxes(title_text="Time (UTC)", row=2, col=1)
+        fig.update_yaxes(title_text=f"Price", row=1, col=1)
+        fig.update_yaxes(title_text="Ticks", row=2, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="Pips", row=2, col=1, secondary_y=True)
+        fig.update_yaxes(title_text="PnL", row=3, col=1)
+        fig.update_xaxes(title_text="Time (UTC)", row=3, col=1)
 
         x0, x1 = df_mid["ts"].min(), df_mid["ts"].max()
-        fig.update_xaxes(range=[x0, x1], row=1, col=1)
-        fig.update_xaxes(range=[x0, x1], row=2, col=1)
+        for r in (1, 2, 3):
+            fig.update_xaxes(range=[x0, x1], row=r, col=1)
 
-        if df_exec.empty:
+        if df_exec is None or df_exec.empty:
             return fig, pnl_rows
 
         # ----- Figure Row 1: Executions
@@ -82,7 +128,7 @@ def register_backtest_callbacks(app):
             fig.add_trace(
                 go.Scatter(
                     x=df_buy["ts"], y=df_buy["price"], mode="markers",
-                    name="Buy fills", marker=dict(symbol="triangle-up", size=10),
+                    name="Buy fills", marker=dict(symbol="triangle-up", size=10, color='black'),
                     hovertemplate="BUY<br>%{x|%Y-%m-%d %H:%M:%S}<br>px=%{y:.6f}<extra></extra>",
                 ),
                 row=1, col=1
@@ -91,7 +137,7 @@ def register_backtest_callbacks(app):
             fig.add_trace(
                 go.Scatter(
                     x=df_sell["ts"], y=df_sell["price"], mode="markers",
-                    name="Sell fills", marker=dict(symbol="triangle-down", size=10),
+                    name="Sell fills", marker=dict(symbol="triangle-down", size=10, color='black'),
                     hovertemplate="SELL<br>%{x|%Y-%m-%d %H:%M:%S}<br>px=%{y:.6f}<extra></extra>",
                 ),
                 row=1, col=1
@@ -125,7 +171,7 @@ def register_backtest_callbacks(app):
         # 7) PnL curve - Figure Row 2
         curve = fifo_realized_unrealized(df_exec[["ts", "price", "qty", "side", "fee", "spread_pnl"]],
                                          df_mid[["ts", "mid"]])
-        fig.add_trace(go.Scatter(x=pnl_curve["ts"], y=pnl_curve["total_pnl"], name="PnL", mode="lines"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=pnl_curve["ts"], y=pnl_curve["total_pnl"], name="PnL", mode="lines"), row=3, col=1)
         # optional components:
         # fig.add_trace(go.Scatter(x=curve["ts"], y=curve["realized"], name="Realized", mode="lines"), row=2, col=1)
         # fig.add_trace(go.Scatter(x=curve["ts"], y=curve["unrealized"], name="Unrealized", mode="lines"), row=2, col=1)
@@ -165,7 +211,7 @@ def register_backtest_callbacks(app):
         view = df_exec[["ts", "side", "usd", "qty", "price", "bid", "mid", "ask", "order_type",  # "liq",
                         "spread_pnl", "market_pnl", "fee", "row_total"]]
         view = view.sort_values("ts", ascending=False)
-        view["ts"] = view["ts"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        view["ts"] = view["ts"].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
         pnl_rows = [total_row] + view.to_dict("records")
 
         return fig, pnl_rows
