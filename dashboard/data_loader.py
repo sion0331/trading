@@ -61,8 +61,8 @@ def load_fills_range(symbol: str, start_utc: str, end_utc: str, path: str):
     return df
 
 
-def load_commissions_range(symbol: str, start_utc: str, end_utc: str):
-    with sqlite3.connect(ORDERS_DB) as con:
+def load_commissions_range(symbol: str, start_utc: str, end_utc: str, path: str):
+    with sqlite3.connect(path) as con:
         df = pd.read_sql_query(
             """
             SELECT exec_id, order_id, symbol, ts, commission, currency, realized_pnl

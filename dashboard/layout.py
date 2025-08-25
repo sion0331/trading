@@ -107,6 +107,31 @@ def _backtest_tab():
                 ],
             ),
             dcc.Graph(id="bt-graph", style={"height": "90vh"}),
+
+            html.H4("PnL by Trade"),
+
+            dash_table.DataTable(
+                id="bt-pnl-table",
+                columns=[
+                    {"name": "Time", "id": "ts"},
+                    {"name": "Side", "id": "side"},
+                    {"name": "USD", "id": "usd", "type": "numeric"},
+                    {"name": "Qty", "id": "qty", "type": "numeric"},
+                    {"name": "Price", "id": "price", "type": "numeric"},
+                    {"name": "Bid", "id": "bid", "type": "numeric"},
+                    {"name": "Mid", "id": "mid", "type": "numeric"},
+                    {"name": "Ask", "id": "ask", "type": "numeric"},
+                    {"name": "Type", "id": "order_type"},
+                    {"name": "Sprd PnL", "id": "spread_pnl", "type": "numeric"},
+                    {"name": "Mkt PnL", "id": "market_pnl", "type": "numeric"},
+                    {"name": "Fee", "id": "fee", "type": "numeric"},
+                    {"name": "Total", "id": "row_total", "type": "numeric"},
+                ],
+                fixed_rows={"headers": True, "data": 1},
+                style_table={"height": "420px", "overflowY": "auto"},
+                style_cell={"padding": "6px", "fontFamily": "monospace"},
+                style_header={"fontWeight": "700"},
+            ),
         ]
     )
 

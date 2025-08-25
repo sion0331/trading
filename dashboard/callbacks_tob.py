@@ -71,7 +71,7 @@ def register_callbacks(app):
         # Load Data SQL
         df_mid = _to_utc_ts(load_tob_range(symbol, start_iso, end_iso))
         df_exec = _to_utc_ts(load_fills_range(symbol, start_iso, end_iso, ORDERS_DB))
-        df_comm = _to_utc_ts(load_commissions_range(symbol, start_iso, end_iso), col="ts")
+        df_comm = _to_utc_ts(load_commissions_range(symbol, start_iso, end_iso, ORDERS_DB))
 
         pnl_rows = [{
             "ts": "TOTAL",

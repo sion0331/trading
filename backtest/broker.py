@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List
+
+import pandas as pd
 
 from backtest.sim_events import Event
 from utils.runtime_state import FrozenRuntimeState
@@ -150,6 +152,10 @@ class SimIB:
         self._next_id = 1
         self._trades: Dict[int, Trade] = {}  # orderId -> Trade
         self._acct = "DU-SIM"
+        self.ts = None
+
+    def connect(self):
+        self.connectedEvent.emit()
 
     # --- API the OrderHandler expects ---
     def placeOrder(self, contract: Contract, order: Order) -> Trade:
@@ -161,15 +167,16 @@ class SimIB:
             permId=order.permId or order.orderId, clientId=order.clientId
         )
         trade = Trade(contract=contract, order=order, orderStatus=os, fills=[])
-        trade.log.append(TradeLogEntry(datetime.now(timezone.utc), "PendingSubmit"))
+        trade.log.append(TradeLogEntry(self.ts + pd.Timedelta("0.1ms"), "PendingSubmit"))
         self._trades[order.orderId] = trade
 
         # emit "new order"
         self.newOrderEvent.emit(trade)
+        # self.orderStatusEvent.emit(trade) # TODO - no PendingSubmit for OrderStatus
 
         # consider it "Submitted" instantly in sim
         os.status = "Submitted"
-        trade.log.append(TradeLogEntry(datetime.now(timezone.utc), "Submitted"))
+        trade.log.append(TradeLogEntry(self.ts + pd.Timedelta("0.2ms"), "Submitted"))
         self.orderStatusEvent.emit(trade)
         # openOrderEvent shape in ib_async: (orderId, contract, order, orderState)
         self.openOrderEvent.emit(order.orderId, contract, order, None)
@@ -182,9 +189,11 @@ class SimIB:
             return None
         # pending cancel
         tr.orderStatus.status = "PendingCancel"
+        tr.log.append(TradeLogEntry(self.ts + pd.Timedelta("0.1ms"), "PendingCancel"))
         self.orderStatusEvent.emit(tr)
         # immediate cancel in sim
         tr.orderStatus.status = "Cancelled"
+        tr.log.append(TradeLogEntry(self.ts + pd.Timedelta("0.1ms"), "Cancelled"))
         self.orderStatusEvent.emit(tr)
         self.cancelOrderEvent.emit(oid)
         return tr
@@ -205,12 +214,14 @@ class SimIB:
           - LMT BUY: if ask <= lmt -> fill @min(lmt, ask)
             LMT SELL: if bid >= lmt -> fill @max(lmt, bid)
         """
+        self.ts = ts
+        ts = self.ts + pd.Timedelta("0.3ms")  # add 0.3 ms
+
         for tr in list(self._trades.values()):
             os = tr.orderStatus
             od = tr.order
             if os.status not in {"Submitted", "PreSubmitted"}:
                 continue
-
             fill_px = None
             if od.orderType == "MKT":
                 fill_px = ask if od.action.upper() == "BUY" else bid
@@ -247,15 +258,16 @@ class SimIB:
                 cumQty=qty, avgPrice=fill_px, lastLiquidity=1
             )
             # tiny flat commission model (override as you like)
-            commission = max(0.0, 0.0000025 * qty * fill_px)  # 0.25 bps notionally
+            commission = max(2.0, 0.000020 * qty * fill_px)  # 0.20 bps notionally, $2.0 minimum
             comm = CommissionReport(execId=exec_id, commission=commission, currency="USD", realizedPNL=0.0)
             fill = Fill(contract=tr.contract, execution=execution, commissionReport=comm, time=ts)
             tr.fills.append(fill)
 
             # events your logger already records
-            self.execDetailsEvent.emit(tr.contract, execution)
-            self.commissionReportEvent.emit(comm)
-            self.orderStatusEvent.emit(tr)  # to send "Filled"
+            self.execDetailsEvent.emit(tr, execution)
+            self.commissionReportEvent.emit(tr, fill, comm)
+            tr.log.append(TradeLogEntry(ts, "Filled"))
+            self.orderStatusEvent.emit(tr)
 
     # helpers
     def _alloc_id(self) -> int:
@@ -272,13 +284,11 @@ class FakeConnection:
 
 # --- subclass OrderHandler only to redirect to a separate backtest DB (optional) ---
 from orders.order_manager import OrderHandler as LiveOrderHandler  # your existing handler
-from database.orders import OrderLogger
 
 
 class BacktestOrderHandler(LiveOrderHandler):
-    def __init__(self, ib_connection: FakeConnection, frozen_state: FrozenRuntimeState,
+    def __init__(self, ib_connection: FakeConnection, frozen_state: FrozenRuntimeState, logger,
                  orders_db_path: str = "./data/db/orders_backtest.db"):
         # call parent but immediately swap logger to write into a separate DB
-        super().__init__(ib_connection, runtime_state=frozen_state)
-        self.logger = OrderLogger(ib_connection.ib, db_path=orders_db_path)
+        super().__init__(ib_connection, runtime_state=frozen_state, logger=logger)
         print("[BT] OrderLogger DB:", orders_db_path)

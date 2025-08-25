@@ -1,5 +1,6 @@
 from datetime import datetime
 
+
 class Trade:
     def __init__(self, ts, exec_id, symbol, exchange,
                  side, shares, price, perm_id, client_id, order_id, liquidation, cum_qty, avg_price, order_ref, ev_rule
@@ -62,7 +63,8 @@ class Trade:
 
     @classmethod
     def from_data(cls, trade):
-        return cls(datetime.strptime(trade['ts'], '%Y-%m-%d %H:%M:%S+00:00'), trade['execId'], trade['symbol'], trade['exchange'], trade['side'],
+        return cls(datetime.strptime(trade['ts'], '%Y-%m-%d %H:%M:%S+00:00'), trade['execId'], trade['symbol'],
+                   trade['exchange'], trade['side'],
                    float(trade['shares']), float(trade['price']), int(trade['permId']), int(trade['clientId']),
                    int(trade['orderId']),
                    int(trade['liquidation']), float(trade['cumQty']), float(trade['avgPrice']), trade['orderRef'],

@@ -66,8 +66,8 @@ class SimpleStrategy:
             return
 
         # check cooldown
-        now = _as_utc_dt(msg.ts)
-        if now - self.last_trade_ts < self.cooldown:
+        ts = _as_utc_dt(msg.ts)
+        if ts - self.last_trade_ts < self.cooldown:
             # print(f"[Strategy] In cooldown ({(now - self.last_trade_ts).total_seconds():.2f}s)")
             return
 
@@ -103,8 +103,8 @@ class SimpleStrategy:
                         ref_price=price,
                     )
                     if self.control_params['send_order']:
-                        self.order_handler.send_order(self.contract, order)
-                    self.last_trade_ts = now
+                        self.order_handler.send_order(self.contract, order, ts)
+                    self.last_trade_ts = ts
 
                 elif self.control_params['order_type'] == "LMT":
                     trade_size = self.control_params['max_position'] - current_position_usd
@@ -123,8 +123,9 @@ class SimpleStrategy:
                                 limit_price=lmt_price,
                                 tif="DAY",
                                 cancel_opposite=True,  # optional: also clear SELLs
+                                ts=ts
                             )
-                        self.last_trade_ts = now
+                        self.last_trade_ts = ts
 
         # SELL signal
         elif price < ma:
@@ -142,8 +143,8 @@ class SimpleStrategy:
                         ref_price=price,
                     )
                     if self.control_params['send_order']:
-                        self.order_handler.send_order(self.contract, order)
-                    self.last_trade_ts = now
+                        self.order_handler.send_order(self.contract, order, ts)
+                    self.last_trade_ts = ts
 
                 elif self.control_params['order_type'] == "LMT":
                     trade_size = self.control_params['max_position'] + current_position_usd
@@ -162,5 +163,6 @@ class SimpleStrategy:
                                 limit_price=lmt_price,
                                 tif="DAY",
                                 cancel_opposite=True,
+                                ts=ts,
                             )
-                        self.last_trade_ts = now
+                        self.last_trade_ts = ts

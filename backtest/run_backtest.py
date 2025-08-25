@@ -6,6 +6,7 @@ import pytz
 
 from backtest.broker import SimIB, FakeConnection, BacktestOrderHandler, Contract, BacktestPositions
 from backtest.replay import load_tob, replay_tob
+from database.orders import OrderLogger
 from strategy.simple import SimpleStrategy
 from utils.runtime_state import FrozenRuntimeState
 
@@ -29,7 +30,7 @@ def main():
     print("Running Backtest: ", start_iso, end_iso)
 
     # Strategy Parameters
-    frozen_state = FrozenRuntimeState(order_type="MKT", max_position=60_000, send_order=True)
+    frozen_state = FrozenRuntimeState(order_type="LMT", max_position=60_000, send_order=True)
 
     # 1) Sim broker & connection
     ib_sim = SimIB()
@@ -39,17 +40,19 @@ def main():
     pos = BacktestPositions()
 
     # 3) Order handler that talks to the sim broker, writing to a separate orders DB
-    oh = BacktestOrderHandler(conn, frozen_state, orders_db_path="./data/db/orders_backtest.db")
+    backtest_logger = OrderLogger(ib_sim, db_path="./data/db/orders_backtest.db")
+    oh = BacktestOrderHandler(conn, frozen_state, logger=backtest_logger, orders_db_path="./data/db/orders_backtest.db")
     oh.create_events()  # register OrderHandler listeners to ib_sim events
 
     # Also update positions when fills happen (so strategy sees them)
-    def _on_exec(contract, execution, *args, **kwargs):
+    def _on_exec(tr, execution, *args, **kwargs):
         side = getattr(execution, "side", "BOT")
         qty = getattr(execution, "shares", 0.0)
-        sym = getattr(contract, "symbol", symbol)
+        sym = getattr(tr.contract, "symbol", symbol)
         pos.apply_fill(sym, side, qty)
 
     ib_sim.execDetailsEvent += _on_exec
+    ib_sim.connect()
 
     # 4) Strategy
     contract = Contract(symbol=symbol, exchange="SIM", currency="USD")

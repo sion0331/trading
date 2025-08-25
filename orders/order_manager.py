@@ -1,8 +1,6 @@
 import logging
 import threading
-import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 from database.orders import OrderLogger
@@ -22,12 +20,12 @@ class _OpenLmt:
 
 
 class OrderHandler:
-    def __init__(self, ib_connection, runtime_state):
+    def __init__(self, ib_connection, runtime_state, logger=None):
         self.ib_connection = ib_connection
         self.state = runtime_state or FrozenRuntimeState()
 
         logging.basicConfig(level=logging.INFO)
-        self.logger = OrderLogger(ib_connection.ib, db_path="./data/db/orders.db")
+        self.logger = logger or OrderLogger(ib_connection.ib, db_path="./data/db/orders.db")
 
         self._open_lmts: Dict[str, List[_OpenLmt]] = {}
         self._cancel_events: dict[int, threading.Event] = {}  # orderId -> Event
@@ -42,9 +40,9 @@ class OrderHandler:
         self.ib_connection.ib.orderModifyEvent += self._on_order_modify
         self.ib_connection.ib.cancelOrderEvent += self._on_order_cancel
 
-    def send_order(self, contract, order):
+    def send_order(self, contract, order, ts):
         logging.info(f"Sending order: {order}")
-        self.logger.log_send_intent(contract, order)
+        self.logger.log_send_intent(contract, order, ts.isoformat())
         self.ib_connection.ib.placeOrder(contract, order)
 
     def request_replace_limit(
@@ -56,6 +54,7 @@ class OrderHandler:
             limit_price: float,
             tif: str = "DAY",
             cancel_opposite: bool = False,
+            ts,
     ):
         """
         Cancel all same-side LMTs and remember the replacement.
@@ -76,7 +75,7 @@ class OrderHandler:
                 limit_price=float(limit_price),
                 tif=tif,
             )
-            self.send_order(contract, order)
+            self.send_order(contract, order, ts)
             return
 
         # remember what to place after cancel completes
@@ -93,52 +92,21 @@ class OrderHandler:
 
         # optionally clean opposite side right away (non-blocking)
         if cancel_opposite:
-            self.cancel_all_for(symbol, "BUY" if side.upper() == "SELL" else "SELL")
+            self.cancel_all_for(symbol, "BUY" if side.upper() == "SELL" else "SELL", ts)
 
         # kick off same-side cancels (non-blocking)
         for o in same_side:
-            self.cancel_order(o.order_id)
+            self.cancel_order(o.order_id, ts)
         # for o in list(self.open_limits(symbol, side)):
         #     self.cancel_order(o.order_id)
 
-    def cancel_side_and_wait(self, symbol: str, side: str, timeout_s: float = 2.0) -> bool:
-        """Cancel all open LMTs on (symbol, side) and wait until we receive 'Cancelled' (or timeout)."""
-        side = side.upper()
-        orders = list(self.open_limits(symbol, side))
-        if not orders:
-            print("### nothing to cancel")
-            return True
-
-        events: list[threading.Event] = []
-        for o in orders:
-            ev = self.cancel_order(o.order_id)
-            if ev:
-                events.append(ev)
-
-        # Wait for all to signal, up to timeout
-        if not events:
-            return False
-        t_end = time.time() + timeout_s
-        for ev in events:
-            remaining = t_end - time.time()
-            if remaining <= 0:
-                return False
-            ok = ev.wait(timeout=remaining)
-            print("### remaining:", remaining, ok)
-            if not ok:
-                return False
-
-        print("open limits len: ", len(self.open_limits(symbol, side)))
-        return len(self.open_limits(symbol, side)) == 0
-        # return True
-
-    def cancel_all_for(self, symbol: str, side: Optional[str] = None):
+    def cancel_all_for(self, symbol: str, side: Optional[str] = None, ts=None):
         for o in self.open_limits(symbol, side):
-            self.cancel_order(o.order_id)
+            self.cancel_order(o.order_id, ts)
 
-    def cancel_order(self, order_id):
+    def cancel_order(self, order_id, ts):
         logging.info(f"Cancelling order ID: {order_id}")
-        self.logger.log_cancel_intent(order_id)
+        self.logger.log_cancel_intent(order_id, ts.isoformat())
 
         o = self._resolve_order_obj(order_id)
         if o is None:
@@ -226,6 +194,7 @@ class OrderHandler:
             od = getattr(trade, "order", None)
             os = getattr(trade, "orderStatus", None)
             ct = getattr(trade, "contract", None)
+            log = getattr(trade, "log", None)
             if not (od and os and ct):
                 return
             if not hasattr(od, "lmtPrice"):
@@ -238,7 +207,6 @@ class OrderHandler:
             qty = getattr(od, "totalQuantity", None)
             lmt_price = getattr(od, "lmtPrice", None)
             status_txt = str(getattr(os, "status", ""))
-
             # keep cache in sync (now PendingCancel stays live, Cancelled drops)
             self._upsert_open_lmt(
                 symbol=symbol,
@@ -250,36 +218,38 @@ class OrderHandler:
                 order_obj=od,
             )
 
-            # signal any synchronous waiters only on true Cancelled
-            if status_txt == "Cancelled" and oid is not None:
-                ts_now = datetime.now(timezone.utc).isoformat()
-                print(f"### {ts_now} | CANCEL | {symbol} {side} {qty} @ {lmt_price} | {oid}")
-                ev = self._cancel_events.pop(oid, None)
-                if ev:
-                    ev.set()
+            for l in log:
+                if getattr(l, "status", None) == status_txt:
+                    # signal any synchronous waiters only on true Cancelled
+                    if status_txt == "Cancelled" and oid is not None:
+                        ts_iso = getattr(l, "time", None).isoformat()
+                        print(f"### {ts_iso} | CANCEL | {symbol} {side} {qty} @ {lmt_price} | {oid}")
+                        ev = self._cancel_events.pop(oid, None)
+                        if ev:
+                            ev.set()
 
-            # ---- PLACE REPLACEMENT ONLY AFTER Cancelled ----
-            if status_txt == "Cancelled":
-                symbol = getattr(ct, "symbol", None)
-                side = getattr(od, "action", None)
-                if symbol and side:
-                    key = (symbol, side.upper())
-                    # Still waiting on other same-side orders? then return
-                    if self.open_limits(symbol, side):
-                        return
-                    # All same-side cleared, place the queued replacement (if any)
-                    payload = self._pending_replace.pop(key, None)
-                    if payload:
-                        contract = payload["contract"]
-                        p = payload["params"]
-                        order = self.create_order(
-                            p["side"],
-                            order_type=p["order_type"],
-                            usd_notional=p["usd_notional"],
-                            limit_price=p["limit_price"],
-                            tif=p["tif"],
-                        )
-                        self.send_order(contract, order)
+                    # ---- PLACE REPLACEMENT ONLY AFTER Cancelled ----
+                    if status_txt == "Cancelled":
+                        symbol = getattr(ct, "symbol", None)
+                        side = getattr(od, "action", None)
+                        if symbol and side:
+                            key = (symbol, side.upper())
+                            # Still waiting on other same-side orders? then return
+                            if self.open_limits(symbol, side):
+                                return
+                            # All same-side cleared, place the queued replacement (if any)
+                            payload = self._pending_replace.pop(key, None)
+                            if payload:
+                                contract = payload["contract"]
+                                p = payload["params"]
+                                order = self.create_order(
+                                    p["side"],
+                                    order_type=p["order_type"],
+                                    usd_notional=p["usd_notional"],
+                                    limit_price=p["limit_price"],
+                                    tif=p["tif"],
+                                )
+                                self.send_order(contract, order, getattr(l, "time", None))
 
         except Exception:
             pass
@@ -290,30 +260,34 @@ class OrderHandler:
             od = getattr(trade, "order", None)
             os = getattr(trade, "orderStatus", None)
             ct = getattr(trade, "contract", None)
-            if not (od and ct):
+            log = getattr(trade, "log", None)
+            if not (od and os and ct and log):
+                print("### ERROR | _on_new_order: ", od, os, ct, log)
                 return
-            if not hasattr(od, "lmtPrice"):
-                return
+
             symbol = getattr(ct, "symbol", None)
             order_id = getattr(od, "orderId", None)
             side = getattr(od, "action", None)
             qty = getattr(od, "totalQuantity", None)
             lmt_price = getattr(od, "lmtPrice", None)
             if lmt_price > 1e10: lmt_price = None
-            status = getattr(os, "status", "Submitted") if os else "Submitted"
+            # status = getattr(os, "status", "Submitted") if os else "Submitted"
 
-            self._upsert_open_lmt(
-                symbol=symbol,
-                order_id=order_id,
-                side=side,
-                qty=qty,
-                lmt_price=lmt_price,
-                status=status,
-                order_obj=od,
-            )
-            order_type = "LMT" if lmt_price else "MKT"  # TODO - add stoploss
-            print(
-                f"### {datetime.now(timezone.utc).isoformat()} | NEW ORDER | {symbol} {side} {order_type} {qty} {lmt_price} | {status}")
+            for l in log:
+                status = getattr(l, "status", "")
+                if hasattr(od, "lmtPrice"):
+                    self._upsert_open_lmt(
+                        symbol=symbol,
+                        order_id=order_id,
+                        side=side,
+                        qty=qty,
+                        lmt_price=lmt_price,
+                        status=status,
+                        order_obj=od,
+                    )
+                order_type = "LMT" if lmt_price else "MKT"  # TODO - add stoploss
+                print(
+                    f"### {getattr(l, "time", None).isoformat()} | NEW ORDER | {symbol} {side} {order_type} {qty} {lmt_price} | {status}")
         except Exception:
             print("ERROR | new_order: ", trade)
             pass

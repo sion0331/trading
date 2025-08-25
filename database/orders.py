@@ -127,11 +127,12 @@ class OrderLogger:
 
     # --------- Public helpers to log INTENT when you send/cancel ---------
 
-    def log_send_intent(self, contract, order):
+    def log_send_intent(self, contract, order, ts):
         """
         Call this right before ib.placeOrder(contract, order)
         """
         self._insert_order_row(
+            ts=ts,
             order_id=getattr(order, "orderId", None),
             perm_id=getattr(order, "permId", None),
             client_id=getattr(order, "clientId", None),
@@ -150,11 +151,12 @@ class OrderLogger:
             note="intent: send"
         )
 
-    def log_cancel_intent(self, order_id: int):
+    def log_cancel_intent(self, order_id: int, ts: str):
         """
         Call this right before ib.cancelOrder(orderId)
         """
         self._insert_order_row(
+            ts=ts,
             order_id=order_id,
             perm_id=None,
             client_id=None,
@@ -203,95 +205,67 @@ class OrderLogger:
         order_id = kwargs.get("orderId")
 
         # --- Trade shape ---
-        if len(args) == 1 and hasattr(args[0], "orderStatus") and hasattr(args[0], "order"):
+        if (len(args) == 1 and hasattr(args[0], "orderStatus") and hasattr(args[0], "order")
+                and hasattr(args[0], "contract") and hasattr(args[0], "log")):
             trade = args[0]
             os = getattr(trade, "orderStatus", None)
             od = getattr(trade, "order", None)
             ct = getattr(trade, "contract", None)
+            log = getattr(trade, "log", None)
 
             # from orderStatus
-            if os is not None:
-                status = getattr(os, "status", status)
-                filled = getattr(os, "filled", filled)
-                remaining = getattr(os, "remaining", remaining)
-                avg_fill_price = getattr(os, "avgFillPrice", avg_fill_price)
-                perm_id = getattr(os, "permId", perm_id)
-                client_id = getattr(os, "clientId", client_id)
-                why_held = getattr(os, "whyHeld", why_held)
-                mkt_cap_price = getattr(os, "mktCapPrice", mkt_cap_price)
-                order_id = getattr(os, "orderId", order_id)
+            status = getattr(os, "status", status)
+            filled = getattr(os, "filled", filled)
+            remaining = getattr(os, "remaining", remaining)
+            avg_fill_price = getattr(os, "avgFillPrice", avg_fill_price)
+            perm_id = getattr(os, "permId", perm_id)
+            client_id = getattr(os, "clientId", client_id)
+            why_held = getattr(os, "whyHeld", why_held)
+            mkt_cap_price = getattr(os, "mktCapPrice", mkt_cap_price)
+            order_id = getattr(os, "orderId", order_id)
 
             # from order
-            if od is not None:
-                order = od
-                order_id = getattr(od, "orderId", order_id)
-                action = getattr(od, "action", action)
-                order_type = getattr(od, "orderType", order_type)
-                qty = getattr(od, "totalQuantity", qty)
-                lmt_price = getattr(od, "lmtPrice", lmt_price)
-                aux_price = getattr(od, "auxPrice", aux_price)
-                perm_id = getattr(od, "permId", perm_id)
-                client_id = getattr(od, "clientId", client_id)
+            order = od
+            order_id = getattr(od, "orderId", order_id)
+            action = getattr(od, "action", action)
+            order_type = getattr(od, "orderType", order_type)
+            qty = getattr(od, "totalQuantity", qty)
+            lmt_price = getattr(od, "lmtPrice", lmt_price)
+            aux_price = getattr(od, "auxPrice", aux_price)
+            perm_id = getattr(od, "permId", perm_id)
+            client_id = getattr(od, "clientId", client_id)
 
             # from contract
-            if ct is not None:
-                symbol = getattr(ct, "symbol", symbol)
+            symbol = getattr(ct, "symbol", symbol)
+
+            for l in log:
+                # print(getattr(l, "status", None), status)
+                if getattr(l, "status", None) == status:
+                    ts_iso = getattr(l, "time").astimezone(timezone.utc).isoformat()
+                    # print("Order _on_order_status:", order_id, getattr(l, "status", ""))
+                    self._insert_order_row(
+                        ts=ts_iso,
+                        order_id=order_id,
+                        perm_id=perm_id,
+                        client_id=client_id,
+                        symbol=symbol,
+                        action=action,
+                        order_type=order_type,
+                        qty=qty,
+                        lmt_price=lmt_price,
+                        aux_price=aux_price,
+                        status=getattr(l, "status", ""),
+                        filled_qty=filled,
+                        remaining_qty=remaining,
+                        avg_fill_price=avg_fill_price,
+                        why_held=why_held,
+                        mkt_cap_price=mkt_cap_price,
+                        note="event: orderStatus"
+                    )
 
         # --- classic positional shape ---
-        elif len(args) >= 2 and order is None and status is None:
-            try:
-                order = args[0]
-                status = args[1]
-                filled = args[2] if len(args) > 2 else filled
-                remaining = args[3] if len(args) > 3 else remaining
-                avg_fill_price = args[4] if len(args) > 4 else avg_fill_price
-                perm_id = args[5] if len(args) > 5 else perm_id
-                client_id = args[8] if len(args) > 8 else client_id
-
-                order_id = getattr(order, "orderId", order_id)
-                action = getattr(order, "action", action)
-                order_type = getattr(order, "orderType", order_type)
-                qty = getattr(order, "totalQuantity", qty)
-                lmt_price = getattr(order, "lmtPrice", lmt_price)
-                aux_price = getattr(order, "auxPrice", aux_price)
-                symbol = getattr(order, "symbol", symbol)  # some libs set symbol on order
-            except Exception:
-                pass
-
-        # --- enrich from kwargs.order if present ---
-        if order is not None:
-            order_id = getattr(order, "orderId", order_id)
-            action = getattr(order, "action", action)
-            order_type = getattr(order, "orderType", order_type)
-            qty = getattr(order, "totalQuantity", qty)
-            lmt_price = getattr(order, "lmtPrice", lmt_price)
-            aux_price = getattr(order, "auxPrice", aux_price)
-            client_id = getattr(order, "clientId", client_id)
-            perm_id = getattr(order, "permId", perm_id)
-
-        # If we still don't have order_id, don't insert (avoid NOT NULL violation)
-        if order_id is None:
-            print("WARN: orderStatus without order_id; skipping insert.", args, kwargs)
-            return
-
-        self._insert_order_row(
-            order_id=order_id,
-            perm_id=perm_id,
-            client_id=client_id,
-            symbol=symbol,
-            action=action,
-            order_type=order_type,
-            qty=qty,
-            lmt_price=lmt_price,
-            aux_price=aux_price,
-            status=status,
-            filled_qty=filled,
-            remaining_qty=remaining,
-            avg_fill_price=avg_fill_price,
-            why_held=why_held,
-            mkt_cap_price=mkt_cap_price,
-            note="event: orderStatus"
-        )
+        else:
+            print("### ERROR | Order Status: ", args)
 
     def _on_exec_details(self, *args, **kwargs):
         """
@@ -301,24 +275,21 @@ class OrderLogger:
         - Trade object with .fills list of Fill
         - kwargs: contract=..., execution=..., commissionReport=...
         """
-        fills = []  # list of tuples: (contract, execution, commissionReport)
-
+        fills = []  # list of tuples: (contract, execution, ts)
         if hasattr(args[0], "fills"):
             for f in args[0].fills:
-                # print("_on_exec_details #1")
-                fills.append((getattr(f, "contract", None), getattr(f, "execution", None)))
+                fills.append((getattr(f, "contract", None), getattr(f, "execution", None), getattr(f, "time", None)))
         else:
-            # print("_on_exec_details #2")
-            fills.append((getattr(args[1], "contract", None), getattr(args[1], "execution", None)))
+            fills.append((getattr(args[1], "contract", None), getattr(args[1], "execution", None),
+                          getattr(args[1], "time", None)))
 
         if not fills:
             print("WARN: _on_exec_details could not parse event:", args, kwargs)
             return
-
         # --- write all parsed fills ---------------------------------------------
         with _connect(self.db_path) as con:
-            for contract, execution in fills:
-                if execution is None or contract is None:
+            for contract, execution, ts in fills:
+                if execution is None or contract is None or ts is None:
                     print("ERROR | Missing execution message: ", contract, execution)
                     continue
 
@@ -331,8 +302,8 @@ class OrderLogger:
                 exchange = getattr(execution, "exchange", None)
                 symbol = getattr(contract, "symbol", None)
                 liquidity = getattr(execution, "lastLiquidity", None)  # IB enums: 1 added, 2 removed ..
-                ts_iso = getattr(execution, "time", None).isoformat()
                 ver = _next_version(con, "executions", exec_id)
+                ts_iso = ts.isoformat()
 
                 # todo - use from message
                 order_type = None
@@ -355,7 +326,7 @@ class OrderLogger:
                     exec_id, ver, ts_iso, order_id, perm_id, symbol, side, qty, price, exchange, order_type, liquidity))
 
                 print(
-                    f"### {ts_iso}        | FILLED | {symbol} {side} {order_type} {qty} @ {price} | {order_id} {perm_id} {exec_id}")
+                    f"### {ts_iso} | FILLED | {symbol} {side} {order_type} {qty} @ {price} | {order_id} {perm_id} {exec_id}")
 
     def _on_commission_report(self, *args, **kwargs):
         """
@@ -378,9 +349,10 @@ class OrderLogger:
                     cr = getattr(f, "commissionReport", None)
                     ex = getattr(f, "execution", None)
                     ct = getattr(f, "contract", None)
+                    ts = getattr(f, "time", None)
                     if cr is not None:
                         # print("here #2")
-                        items.append((cr, ex, ct, order))
+                        items.append((cr, ex, ct, order, ts))
                 continue
 
             # Fill(...) like object
@@ -397,14 +369,13 @@ class OrderLogger:
             # Nothing parseable—just bail quietly
             return
 
-        ts_iso = _utc_now_iso()
-
         with _connect(self.db_path) as con:
-            for cr, ex, ct, od in items:
-                if cr is None or ex is None or ct is None:
+            for cr, ex, ct, od, ts in items:
+                if cr is None or ex is None or ct is None or ts is None:
                     print("### ERROR | #2 Parsing Commission: ", args)
                     continue
 
+                ts_iso = ts.isoformat()
                 exec_id = getattr(cr, "execId", None)
                 commission = getattr(cr, "commission", None)
                 currency = getattr(cr, "currency", None)
@@ -435,6 +406,7 @@ class OrderLogger:
     def _insert_order_row(
             self,
             *,
+            ts: Optional[str],
             order_id: Optional[int],
             perm_id: Optional[int],
             client_id: Optional[int],
@@ -452,7 +424,6 @@ class OrderLogger:
             mkt_cap_price: Optional[float],
             note: Optional[str]
     ):
-        ts = _utc_now_iso()
         with _connect(self.db_path) as con:
             con.execute("""
                 INSERT OR REPLACE INTO orders
