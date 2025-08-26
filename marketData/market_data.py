@@ -65,7 +65,7 @@ class MarketDataHandler:
 
             ### TODO - does not capture subsequent trades with same price & size
             tape_changed = False
-            if is_pos(last) and is_pos(lastSize):
+            if is_pos(last):  # and is_pos(lastSize):
                 tape_changed = (
                         not is_equal(last, prev.get("last"), self.price_eps) or
                         not is_equal(lastSize, prev.get("lastSize"), self.size_eps)

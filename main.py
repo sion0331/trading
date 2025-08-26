@@ -4,6 +4,7 @@ from marketData.market_data import MarketDataHandler
 from orders.order_manager import OrderHandler
 from position.position_manager import PositionHandler
 from strategy.simple import SimpleStrategy
+from strategy.transformer_simple.strategy import TransformerStrategy
 from trades.trade_manager import TradeHandler
 from utils.config_loader import load_config
 from utils.control_http import ControlHTTPServer
@@ -30,7 +31,7 @@ def main():
     trade_handler = TradeHandler(ib_conn)
     position_handler = PositionHandler(ib_conn)
     order_handler = OrderHandler(ib_conn, runtime_state=state)
-    strategy = SimpleStrategy(contract, order_handler, position_handler, runtime_state=state)
+    strategy = TransformerStrategy(contract, order_handler, position_handler, runtime_state=state)
 
     market_data_handler.create_events()
     trade_handler.create_events()

@@ -1,15 +1,6 @@
 import pandas as pd
 
 
-def _to_utc_ts(df, col="ts"):
-    if df is None or df.empty or col not in df:
-        return df
-    df = df.copy()
-    df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
-    df = df.dropna(subset=[col]).sort_values(col).reset_index(drop=True)
-    return df
-
-
 def fifo_realized_unrealized(df_exec: pd.DataFrame, df_mid: pd.DataFrame) -> pd.DataFrame:
     """
     Returns a time series aligned to df_mid['ts'] with columns:
@@ -110,3 +101,34 @@ def fifo_realized_unrealized(df_exec: pd.DataFrame, df_mid: pd.DataFrame) -> pd.
 
     aligned["pnl_total"] = aligned["realized"] + aligned["unrealized"] - aligned["fees_cum"] + aligned["impact_cum"]
     return aligned[["ts", "position", "cash", "realized", "unrealized", "fees_cum", "impact_cum", "pnl_total"]]
+
+
+def compute_pnl_curve(df_mid, df_exec) -> pd.DataFrame:
+    """
+    df_mid: columns ['ts', 'mid']  (already sorted ascending, UTC)
+    df_exec: columns ['ts', 'price', 'qty', 'side'] with side in {'BUY','SELL'}
+    Returns DataFrame with ['ts','position','cash','pnl'] aligned to df_mid['ts'].
+    """
+    df_mid = df_mid[["ts", "mid"]].dropna().sort_values("ts").reset_index(drop=True)
+
+    e = df_exec.copy()
+    e["net_qty"] = e["sign"] * e["qty"].astype(float)
+    e["cash_flow"] = - e["net_qty"] * e["price"].astype(float)
+
+    e = e.sort_values("ts").reset_index(drop=True)
+    e["cum_pos"] = e["net_qty"].cumsum()
+    e["cum_cash"] = e["cash_flow"].cumsum()
+    e["cum_fee"] = e["fee"].cumsum()
+
+    # align cumulative state to each market timestamp
+    state = e[["ts", "cum_pos", "cum_cash", "cum_fee"]]
+    aligned = pd.merge_asof(df_mid, state, on="ts", direction="backward")
+
+    aligned["cum_pos"] = aligned["cum_pos"].fillna(0.0)
+    aligned["cum_cash"] = aligned["cum_cash"].fillna(0.0)
+    aligned["cum_fee"] = aligned["cum_fee"].fillna(0.0)
+    aligned["position"] = aligned["cum_pos"]
+    aligned["cash"] = aligned["cum_cash"]
+    aligned["fee"] = aligned["cum_fee"]
+    aligned["total_pnl"] = aligned["cash"] + aligned["position"] * aligned["mid"] - aligned["fee"]
+    return aligned[["ts", "position", "cash", "total_pnl"]]
