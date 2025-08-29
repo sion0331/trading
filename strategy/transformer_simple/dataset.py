@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 from typing import Tuple, Optional
 
@@ -29,8 +30,17 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df["ret1"] = df["mid"].pct_change().fillna(0.0)
     df["ret5"] = df["mid"].pct_change(5).fillna(0.0)
     df["imb"] = (df["bid_size"] - df["ask_size"]) / (df["bid_size"] + df["ask_size"] + 1e-9)
-    df["spread_bp"] = (df["spread"] / df["mid"]).fillna(0.0) * 1e4
+    df["spread_bp"] = (df["spread"] / df["mid"]).fillna(0.0)
     return df
+
+
+def class_counts(y: np.ndarray):
+    vals, counts = np.unique(y, return_counts=True)
+    d = {int(v): int(c) for v, c in zip(vals, counts)}
+    # ensure all 0,1,2 present in dict for readability
+    for k in [0, 1, 2]:
+        d.setdefault(k, 0)
+    return d
 
 
 def build_sequences(df_1s: pd.DataFrame, lookback: int = 120, horizon: int = 10,
@@ -67,13 +77,15 @@ def build_sequences(df_1s: pd.DataFrame, lookback: int = 120, horizon: int = 10,
         "horizon": horizon,
         "classify": classify
     }
+
     return X, y, norm
 
 
 class EurusdTickDataset(Dataset):
     def __init__(self, symbol: str, start_iso: str, end_iso: str,
                  lookback=120, horizon=10, classify=True, stride=1,
-                 db_path: Optional[Path] = None, normalize=True, norm_stats=None):
+                 db_path: Optional[Path] = None, normalize=True, norm_stats=None,
+                 balance="undersample", random_state: int = 42):
         db = db_path or DB_PATH
         raw = load_tob_range(symbol, start_iso, end_iso, db)
         if raw.empty:
@@ -84,7 +96,35 @@ class EurusdTickDataset(Dataset):
         else:
             f1s = make_1s_frame(raw)
             f1s = add_features(f1s)
+            # print(f1s.iloc[100])
             X, y, norm = build_sequences(f1s, lookback, horizon, stride, classify)
+            print("Before Balancing:", class_counts(y))
+            # 🔹 Balance here
+            if balance != "none" and len(y) > 0:
+                rng = np.random.default_rng(random_state)
+                counts = Counter(y)
+                min_count = min(counts.values())
+                max_count = max(counts.values())
+                indices = []
+
+                if balance == "undersample":
+                    for c in np.unique(y):
+                        idx = np.where(y == c)[0]
+                        if len(idx) > min_count:
+                            idx = rng.choice(idx, min_count, replace=False)
+                        indices.extend(idx)
+                elif balance == "oversample":
+                    for c in np.unique(y):
+                        idx = np.where(y == c)[0]
+                        if len(idx) < max_count:
+                            extra = rng.choice(idx, max_count - len(idx), replace=True)
+                            idx = np.concatenate([idx, extra])
+                        indices.extend(idx)
+
+                rng.shuffle(indices)
+                X, y = X[indices], y[indices]
+                print("After Balancing:", class_counts(y))
+
             if normalize and len(X):
                 mean = np.array(norm_stats["feat_mean"] if norm_stats else norm["feat_mean"], dtype=np.float32)
                 std = np.array(norm_stats["feat_std"] if norm_stats else norm["feat_std"], dtype=np.float32)

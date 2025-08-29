@@ -42,6 +42,7 @@ class TrainConfig:
     num_classes: int = 3
     # notes
     label_names: tuple[str, ...] = ("down", "flat", "up")
+    balance: str = "undersample"
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)
@@ -75,6 +76,8 @@ def make_dataset(cfg: TrainConfig) -> EurusdTickDataset:
         lookback=cfg.lookback,
         horizon=cfg.horizon,
         classify=True,
+        balance=cfg.balance,
+        random_state=cfg.seed
     )
     if len(ds) < 1000:
         raise SystemExit(f"Not enough samples ({len(ds)}). Extend date range.")
@@ -109,6 +112,7 @@ def _ensure_ce_labels(y: torch.Tensor) -> torch.Tensor:
 def train_epoch(model: torch.nn.Module, loader: DataLoader, opt: torch.optim.Optimizer, device: str) -> float:
     model.train()
     tot = 0.0
+    n = max(1, len(loader.dataset))
     for x, y in loader:
         x, y = x.to(device), _ensure_ce_labels(y.to(device))
         logits = model(x)
@@ -117,7 +121,7 @@ def train_epoch(model: torch.nn.Module, loader: DataLoader, opt: torch.optim.Opt
         loss.backward()
         opt.step()
         tot += float(loss.item()) * len(x)
-    return tot / max(1, len(loader.dataset))
+    return tot / n
 
 
 @torch.no_grad()
@@ -173,8 +177,8 @@ if __name__ == "__main__":
         symbol="EUR",
         start_date="2025-08-08",
         end_date="2025-08-08",
-        lookback=120,
-        horizon=10,
+        lookback=60,
+        horizon=5,
         batch_size=256,
         epochs=10,
         val_frac=0.10,
@@ -184,5 +188,6 @@ if __name__ == "__main__":
         in_dim=5,
         num_classes=3,
         label_names=("down", "flat", "up"),
+        balance="undersample"
     )
     run_training(cfg)
