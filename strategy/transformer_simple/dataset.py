@@ -57,7 +57,7 @@ def build_sequences(df_1s: pd.DataFrame, lookback: int = 120, horizon: int = 10,
         X.append(feats[i - lookback:i])
         r = (mid[i + horizon] - mid[i]) / mid[i]
         if classify:
-            tau = 0.00002  # 0.2 bp ~ tweak later
+            tau = 0.00010  # 0.2 bp ~ tweak later
             if r > tau:
                 lab = 2  # up
             elif r < -tau:
