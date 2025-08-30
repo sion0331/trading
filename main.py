@@ -3,7 +3,6 @@ from marketData.contracts import EURUSD
 from marketData.market_data import MarketDataHandler
 from orders.order_manager import OrderHandler
 from position.position_manager import PositionHandler
-from strategy.simple import SimpleStrategy
 from strategy.transformer_simple.strategy import TransformerStrategy
 from trades.trade_manager import TradeHandler
 from utils.config_loader import load_config

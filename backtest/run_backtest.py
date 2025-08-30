@@ -7,7 +7,7 @@ import pytz
 from backtest.broker import SimIB, FakeConnection, BacktestOrderHandler, Contract, BacktestPositions
 from backtest.replay import load_tob, replay_tob
 from database.orders import OrderLogger
-from strategy.simple import SimpleStrategy
+from strategy.transformer_simple.strategy import TransformerStrategy
 from utils.runtime_state import FrozenRuntimeState
 
 NY = pytz.timezone("America/New_York")
@@ -24,7 +24,7 @@ def fx_reset_window(date_ny_str: str) -> tuple[datetime, datetime]:
 
 def main():
     symbol = "EUR"
-    date_ny = "2025-08-25"
+    date_ny = "2025-08-29"
     start_utc, end_utc = fx_reset_window(date_ny)
     start_iso, end_iso = start_utc.isoformat(), end_utc.isoformat()
     print("Running Backtest: ", start_iso, end_iso)
@@ -46,6 +46,7 @@ def main():
 
     # Also update positions when fills happen (so strategy sees them)
     def _on_exec(tr, execution, *args, **kwargs):
+        #todo error if fail
         side = getattr(execution, "side", "BOT")
         qty = getattr(execution, "shares", 0.0)
         sym = getattr(tr.contract, "symbol", symbol)
@@ -56,16 +57,18 @@ def main():
 
     # 4) Strategy
     contract = Contract(symbol=symbol, exchange="SIM", currency="USD")
-    strat = SimpleStrategy(
-        contract=contract,
-        order_handler=oh,
-        position_handler=pos,  # exposes .positions dict the same way
-        runtime_state=frozen_state,
-        position_throttle=30,
-        window_size=10,
-        cooldown_sec=10,
-        last_trade_ts=start_utc
-    )
+    strat = TransformerStrategy(contract, oh, pos, runtime_state=frozen_state, last_trade_ts=start_utc)
+
+    # strat = SimpleStrategy(
+    #     contract=contract,
+    #     order_handler=oh,
+    #     position_handler=pos,  # exposes .positions dict the same way
+    #     runtime_state=frozen_state,
+    #     position_throttle=30,
+    #     window_size=10,
+    #     cooldown_sec=10,
+    #     last_trade_ts=start_utc
+    # )
 
     # 5) Load TOB from your market.db
     df = load_tob(symbol, start_iso, end_iso)

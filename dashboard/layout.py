@@ -22,6 +22,14 @@ def _live_tab():
                         clearable=False,
                         style={"width": "200px"},
                     ),
+                    html.Label("Date"),
+                    dcc.DatePickerSingle(
+                        id="trades-date",
+                        date=str(_today_ny),
+                        display_format="YYYY-MM-DD",
+                        persistence=True,
+                        style={"marginLeft": "16px"}
+                    ),
                     html.Label("Lookback (min)"),
                     dcc.Input(
                         id="lookback-min",
@@ -40,20 +48,6 @@ def _live_tab():
             ),
             dcc.Graph(id="tob-graph", style={"height": "100vh"}),
 
-            html.H4("PnL by Trade"),
-            html.Div(
-                style={"display": "flex", "gap": "12px", "alignItems": "center", "flexWrap": "wrap"},
-                children=[
-                    html.Label("Date"),
-                    dcc.DatePickerSingle(
-                        id="trades-date",
-                        date=str(_today_ny),
-                        display_format="YYYY-MM-DD",
-                        persistence=True,
-                        style={"marginLeft": "16px"}
-                    ),
-                ],
-            ),
             dash_table.DataTable(
                 id="pnl-table",
                 columns=[
