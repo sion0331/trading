@@ -16,7 +16,8 @@ class TransformerStrategy:
     def __init__(self, contract, order_handler, position_handler, runtime_state,
                  model_dir: Path | None = None,
                  order_type="LMT", max_position=60_000, position_throttle=30,
-                 lookback=120, cooldown_sec=5, ref_pips=0.1):  # lookback=120
+                 lookback=120, cooldown_sec=5, ref_pips=0.1,  # lookback=120
+                 last_trade_ts=datetime.now(timezone.utc)):
         self.contract = contract
         self.oh = order_handler
         self.ph = position_handler
@@ -26,7 +27,7 @@ class TransformerStrategy:
         self.position_throttle = position_throttle
         self.order_type = order_type
         self.cooldown = timedelta(seconds=cooldown_sec)
-        self.last_trade_ts = datetime.now(timezone.utc)
+        self.last_trade_ts = last_trade_ts
 
         self.lookback = lookback
         self.ref_pips = ref_pips * 1e-4
@@ -36,7 +37,7 @@ class TransformerStrategy:
 
         self.control_params = {'order_type': None, 'max_position': 0.0, 'send_order': False}
 
-        md = model_dir or (Path(__file__).resolve().parents[2] / "models")
+        md = model_dir or (Path(__file__).resolve().parents[2] / "models" / "transformer_simple")
         with open(md / "eurusd_transformer.norm.json") as f:
             self.norm = json.load(f)
         self.mean = np.array(self.norm["feat_mean"], dtype=np.float32)
@@ -80,7 +81,7 @@ class TransformerStrategy:
             prob = torch.softmax(logits, dim=-1)[0].cpu().numpy()
             pred = int(prob.argmax())
 
-            print(logits, prob, pred)
+            # print(logits, prob, pred)
         # map {0:DOWN,1:FLAT,2:UP} or {0:-1,1:0,2:1} depending on training
         # we used labels {-1,0,1} mapped to indices {0,1,2}. So:
         cls = [-1, 0, 1][pred]
@@ -94,19 +95,17 @@ class TransformerStrategy:
     def on_market_data(self, msg):
         # Expecting your TOB wrapper carrying .bid, .ask, .bidSize, .askSize, .ts, .symbol
         self.update_params()
-
         bid = getattr(msg, "bid", None)
         ask = getattr(msg, "ask", None)
         bs = getattr(msg, "bidSize", getattr(msg, "bid_size", 0.0))
         asz = getattr(msg, "askSize", getattr(msg, "ask_size", 0.0))
         ts = getattr(msg, "ts", datetime.now(timezone.utc))
-        # print(ts, bid, ask, bs, asz)
         if bid is None or ask is None: return
 
         # check cooldown
         ts = _as_utc_dt(msg.ts)
         if ts - self.last_trade_ts < self.cooldown:
-            # print(f"[Strategy] In cooldown ({(now - self.last_trade_ts).total_seconds():.2f}s)")
+            # print(f"[Strategy] In cooldown ({(ts - self.last_trade_ts).total_seconds():.2f}s)")
             return
 
         self._append_feat(float(bid), float(ask), float(bs or 0.0), float(asz or 0.0), ts)

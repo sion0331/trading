@@ -61,6 +61,8 @@ def register_callbacks(app):
         Input("trades-date", "date"),
     )
     def update_price_pnl(n_intervals, symbol, lookback_min, trades_date):
+        is_today = datetime.today().strftime('%Y-%m-%d') == trades_date
+
         lookback_min = int(lookback_min or 30)
         lookback_iso = (datetime.now(timezone.utc) - timedelta(minutes=lookback_min)).isoformat()
 
@@ -93,7 +95,7 @@ def register_callbacks(app):
 
         # ----- Figure Row 1: Price
         PIP = 1e-4
-        df_mid_lookback = df_mid[df_mid['ts'] >= lookback_iso].copy()
+        df_mid_lookback = df_mid[df_mid['ts'] >= lookback_iso].copy() if is_today else df_mid
         df_mid_lookback["spread"] = (df_mid_lookback["ask"] - df_mid_lookback["bid"]) / PIP
         df_mid_lookback["d_mid"] = df_mid_lookback["mid"].diff() / PIP
 
@@ -162,7 +164,7 @@ def register_callbacks(app):
             return fig, pnl_rows
 
         # ----- Figure Row 1: Executions
-        df_exec_lookback = df_exec[df_exec['ts'] >= lookback_iso]
+        df_exec_lookback = df_exec[df_exec['ts'] >= lookback_iso] if is_today else df_exec
         df_buy = df_exec_lookback[df_exec_lookback["side"].str.upper().isin(["BUY", "BOT"])]
         df_sell = df_exec_lookback[df_exec_lookback["side"].str.upper().isin(["SELL", "SLD"])]
 
