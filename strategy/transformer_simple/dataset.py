@@ -11,7 +11,6 @@ from database.db_loader import load_tob_range
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "db" / "history.db"
 
-
 def make_1s_frame(df_tob: pd.DataFrame) -> pd.DataFrame:
     idx = df_tob.set_index("ts")
     res = pd.DataFrame({

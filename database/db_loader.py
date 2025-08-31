@@ -9,6 +9,7 @@ from utils.utils_dt import _to_utc_ts
 ORDERS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders.db"
 MARKETS_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "market.db"
 BACKTEST_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "orders_backtest.db"
+HISTORY_DB = Path(__file__).resolve().parents[1] / "data" / "db" / "history.db"
 
 
 def _conn():
