@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytz
 from ib_async import IB, Forex
 
-DB_PATH = "../data/db/trading.db"
+DB_PATH = "../data/db/history.db"
 
 
 def _ensure(conn: sqlite3.Connection):
@@ -120,7 +120,7 @@ def download(ib: IB, symbol: str, start_dt: datetime, end_dt: datetime, page=100
 
 if __name__ == "__main__":
     sym = "EUR"
-    sd = datetime(2025, 8, 8, tzinfo=pytz.UTC)
+    sd = datetime(2025, 8, 29, tzinfo=pytz.UTC)
     ed = sd + timedelta(days=1)
 
     ib = IB()

@@ -5,7 +5,7 @@ from threading import RLock
 @dataclass
 class RuntimeState:
     order_type: str = "LMT"
-    max_position: int = 60_000
+    max_position: int = 50_000
     send_order: bool = False
 
     _lock: RLock = field(default_factory=RLock, init=False, repr=False)
@@ -26,7 +26,7 @@ class RuntimeState:
 
 
 class FrozenRuntimeState:
-    def __init__(self, order_type="LMT", max_position=60_000, send_order=False):
+    def __init__(self, order_type="LMT", max_position=50_000, send_order=False):
         self._snap = {
             "order_type": order_type,
             "max_position": max_position,

@@ -85,6 +85,7 @@ def _ensure_db(db_path: Path):
     """)
     _ensure_column(con, "executions", "order_type", "TEXT")
     _ensure_column(con, "executions", "liquidity", "INTEGER")
+    _ensure_column(con, "executions", "version", "INTEGER")
     _ensure_column(con, "commissions", "symbol", "TEXT")
     _ensure_column(con, "commissions", "order_id", "INTEGER")
 
@@ -112,7 +113,7 @@ class OrderLogger:
     executions, and commissions to a SQLite database.
     """
 
-    def __init__(self, ib, db_path: str | Path = "data/db/orders.db"):
+    def __init__(self, ib, db_path: str | Path = "../data/db/orders.db"):
         self.ib = ib
         self.db_path = Path(db_path)
         _ensure_db(self.db_path)

@@ -20,7 +20,7 @@ def main():
     ib_client_id = config['api']['ib_client_id']
 
     # Shared live state (initial defaults)
-    state = RuntimeState(order_type="LMT", max_position=60_000, send_order=False)
+    state = RuntimeState(order_type="LMT", max_position=50_000, send_order=False)
 
     ControlHTTPServer(state, host=config['param']['host'], port=config['param']['port']).start()
 
@@ -30,7 +30,7 @@ def main():
     trade_handler = TradeHandler(ib_conn)
     position_handler = PositionHandler(ib_conn)
     order_handler = OrderHandler(ib_conn, runtime_state=state)
-    strategy = TransformerStrategy(contract, order_handler, position_handler, runtime_state=state)
+    strategy = TransformerStrategy(contract, order_handler, position_handler, lookback=120, runtime_state=state)
 
     market_data_handler.create_events()
     trade_handler.create_events()
