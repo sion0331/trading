@@ -10,7 +10,7 @@ import pandas as pd
 from backtest.broker import SimIB
 from marketData.data_types import Tob  # your existing class
 
-DB_PATH = (Path(__file__).resolve().parents[1] / "data" / "db" / "market.db").resolve()
+DB_PATH = (Path(__file__).resolve().parents[1] / "data" / "db" / "history.db").resolve()
 
 
 def load_tob(symbol: str, start_iso: str, end_iso: str) -> pd.DataFrame:
