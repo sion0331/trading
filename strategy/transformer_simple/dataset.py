@@ -7,9 +7,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from database.db_loader import load_tob_range
+from database.db_loader import load_tob_range, HISTORY_DB
 
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "db" / "history.db"
 
 def make_1s_frame(df_tob: pd.DataFrame) -> pd.DataFrame:
     idx = df_tob.set_index("ts")
@@ -85,7 +84,7 @@ class EurusdTickDataset(Dataset):
                  lookback=120, horizon=10, classify=True, stride=1,
                  db_path: Optional[Path] = None, normalize=True, norm_stats=None,
                  balance="undersample", random_state: int = 42):
-        db = db_path or DB_PATH
+        db = db_path or HISTORY_DB
         raw = load_tob_range(symbol, start_iso, end_iso, db)
         if raw.empty:
             self.X = np.zeros((0, lookback, 5), dtype=np.float32)

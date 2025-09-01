@@ -24,13 +24,13 @@ def fx_reset_window(date_ny_str: str) -> tuple[datetime, datetime]:
 
 def main():
     symbol = "EUR"
-    date_ny = "2025-08-08"
+    date_ny = "2025-08-29"
     start_utc, end_utc = fx_reset_window(date_ny)
     start_iso, end_iso = start_utc.isoformat(), end_utc.isoformat()
     print("Running Backtest: ", start_iso, end_iso)
 
     # Strategy Parameters
-    frozen_state = FrozenRuntimeState(order_type="LMT", max_position=50_000, send_order=True)
+    frozen_state = FrozenRuntimeState(order_type="MKT", max_position=50_000, send_order=True)
 
     # 1) Sim broker & connection
     ib_sim = SimIB()

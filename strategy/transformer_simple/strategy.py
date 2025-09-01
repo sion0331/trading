@@ -85,7 +85,8 @@ class TransformerStrategy:
         # map {0:DOWN,1:FLAT,2:UP} or {0:-1,1:0,2:1} depending on training
         # we used labels {-1,0,1} mapped to indices {0,1,2}. So:
         cls = [-1, 0, 1][pred]
-        print(f"Direction:{'BUY' if cls > 0 else 'SELL' if cls < 0 else 'HOLD'} | Confidence: {prob.max()}")
+        if prob.max() > 0.5:
+            print(f"Direction:{'BUY' if cls > 0 else 'SELL' if cls < 0 else 'HOLD'} | Confidence: {prob.max()}")
         return cls, prob
 
     def _now_ok(self):
@@ -153,7 +154,7 @@ class TransformerStrategy:
         #       f"| FilledUSD: {current_position_usd:.0f} | Pending(+buy/-sell): {pend_buy_usd:.0f}/{pend_sell_usd:.0f} "
         #       f"| EffectiveUSD: {effective_usd:.0f}")
 
-        if cls > 0 and prob.max() > 0.6:
+        if cls > 0 and prob.max() > 0.5:
             # print(
             #     f"### {now} | SIGNAL BUY | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Send: {self.control_params['send_order']} | Position: {current_position_usd}")
             # self.order_handler.cancel_all_for(self.contract.symbol, "SELL")
@@ -193,7 +194,7 @@ class TransformerStrategy:
                         self.last_trade_ts = ts
 
         # SELL signal
-        elif cls < 0 and prob.max() > 0.6:
+        elif cls < 0 and prob.max() > 0.5:
             # print(
             #     f"### {now} | SIGNAL SELL | {self.contract.symbol} Last: {price:.5f} | MA({self.window_size}): {ma:.5f} | Send: {self.control_params['send_order']} | Position: {current_position_usd}")
             # self.order_handler.cancel_all_for(self.contract.symbol, "BUY")
