@@ -16,7 +16,7 @@ def _conn():
     return sqlite3.connect(ORDERS_DB)
 
 
-def load_tob_range(symbol: str, start_utc: str, end_utc: str, db_path=MARKETS_DB):
+def load_tob_range(symbol: str, start_utc: str, end_utc: str, db_path=MARKETS_DB, pip=1e-4):
     with sqlite3.connect(db_path) as con:
         df = pd.read_sql_query(
             """
@@ -31,7 +31,7 @@ def load_tob_range(symbol: str, start_utc: str, end_utc: str, db_path=MARKETS_DB
     if df is None:
         return pd.DataFrame()
     df = _to_utc_ts(df)
-    df["spread"] = (df["ask"] - df["bid"]) / 1e-4
+    df["spread"] = (df["ask"] - df["bid"]) / pip
     # df["spread_bps"] = (df["spread"] / df["mid"]) * 1e4
     return df.reset_index(drop=True)
 

@@ -85,7 +85,7 @@ class EurusdTickDataset(Dataset):
                  db_path: Optional[Path] = None, normalize=True, norm_stats=None,
                  balance="undersample", random_state: int = 42):
         db = db_path or HISTORY_DB
-        raw = load_tob_range(symbol, start_iso, end_iso, db)
+        raw = load_tob_range(symbol, start_iso, end_iso, db, pip=1.0)
         if raw.empty:
             self.X = np.zeros((0, lookback, 5), dtype=np.float32)
             self.y = np.zeros((0,), dtype=np.int64 if classify else np.float32)

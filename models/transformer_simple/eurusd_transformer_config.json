@@ -1,7 +1,9 @@
 {
-  "symbol": "EUR",
-  "start_date": "2025-08-29",
-  "end_date": "2025-08-29",
+  "symbol": "USDJPY",
+  "train_sd": "2025-06-01",
+  "train_ed": "2025-06-20",
+  "val_sd": "2025-06-21",
+  "val_ed": "2025-06-30",
   "lookback": 120,
   "horizon": 30,
   "batch_size": 256,
