@@ -8,7 +8,7 @@ import pytz
 from ib_async import IB, Forex
 
 # DB_PATH = "../data/db/history.db"
-DB_PATH = "../data/db/jpy.db"
+DB_PATH = "../data/db/jpy3.db"
 
 
 def _ensure(conn: sqlite3.Connection):
@@ -173,7 +173,7 @@ def download(
 if __name__ == "__main__":
     # sym = "EURUSD"
     sym = "USDJPY"
-    sd = datetime(2025, 6, 1, tzinfo=pytz.UTC)
+    sd = datetime(2025, 7, 10, tzinfo=pytz.UTC)
     ed = datetime(2025, 8, 31, tzinfo=pytz.UTC)
     # ed = sd + timedelta(days=1)
 
